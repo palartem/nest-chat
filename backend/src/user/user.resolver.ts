@@ -1,4 +1,6 @@
-import { Resolver, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
+import { GqlAuthGuard } from '../auth/gql-auth.guard';
 import { UserService } from './user.service';
 import { User } from './user.entity';
 import { CreateUserInput } from './dto/create-user.input';
@@ -16,7 +18,6 @@ export class UserResolver {
             throw new Error('Email already registered');
         }
         const user = await this.userService.createUser(data.email, data.password, data.name);
-        // здесь должна быть логика добавления задачи в очередь для отправки email (потом)
         return user;
     }
 
@@ -25,5 +26,11 @@ export class UserResolver {
         @Args('userId') userId: string,
     ): Promise<User> {
         return this.userService.confirmUser(userId);
+    }
+
+    @Query(() => User, { nullable: true })
+    @UseGuards(GqlAuthGuard)
+    async me(@Context() context): Promise<User | null> {
+        return this.userService.findById(context.req.user.id);
     }
 }

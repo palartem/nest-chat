@@ -22,6 +22,11 @@ type Chat {
   createdAt: DateTime!
 }
 
+type LoginResponse {
+  access_token: String!
+  user: User!
+}
+
 type Message {
   id: ID!
   text: String!
@@ -32,6 +37,7 @@ type Message {
 
 type Query {
   hello: String!
+  me: User
   chats(userId: Int!): [Chat!]!
   messages(chatId: Int!): [Message!]!
 }
@@ -40,6 +46,7 @@ type Mutation {
   register(data: CreateUserInput!): User!
   confirmEmail(userId: String!): User!
   createChat(userAId: Int!, userBId: Int!): Chat!
+  login(email: String!, password: String!): LoginResponse!
   sendMessage(chatId: Int!, senderId: Int!, text: String!): Message!
 }
 
