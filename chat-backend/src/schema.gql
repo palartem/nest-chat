@@ -27,19 +27,10 @@ type LoginResponse {
   user: User!
 }
 
-type Message {
-  id: ID!
-  text: String!
-  sender: User!
-  chat: Chat!
-  createdAt: DateTime!
-}
-
 type Query {
   hello: String!
   me: User
   chats(userId: Int!): [Chat!]!
-  messages(chatId: Int!): [Message!]!
 }
 
 type Mutation {
@@ -47,7 +38,6 @@ type Mutation {
   confirmEmail(userId: String!): User!
   createChat(userAId: Int!, userBId: Int!): Chat!
   login(email: String!, password: String!): LoginResponse!
-  sendMessage(chatId: Int!, senderId: Int!, text: String!): Message!
 }
 
 input CreateUserInput {

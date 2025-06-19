@@ -1,7 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn } from 'typeorm';
-import { ObjectType, Field, ID } from '@nestjs/graphql';
+import {
+    Entity,
+    PrimaryGeneratedColumn,
+    Column,
+    CreateDateColumn,
+    ManyToOne,
+} from 'typeorm';
 import { User } from '../user/user.entity';
 import { Chat } from '../chat/chat.entity';
+import { ObjectType, Field, ID } from '@nestjs/graphql';
 
 @Entity()
 @ObjectType()
@@ -12,7 +18,11 @@ export class Message {
 
     @Field()
     @Column()
-    text: string;
+    content: string;
+
+    @Field()
+    @CreateDateColumn()
+    createdAt: Date;
 
     @Field(() => User)
     @ManyToOne(() => User)
@@ -21,8 +31,4 @@ export class Message {
     @Field(() => Chat)
     @ManyToOne(() => Chat)
     chat: Chat;
-
-    @Field()
-    @CreateDateColumn()
-    createdAt: Date;
 }

@@ -1,10 +1,16 @@
 import { Resolver, Mutation, Args, Int, Query } from '@nestjs/graphql';
-import { Message } from './message.entity';
 import { MessageService } from './message.service';
+import { Message } from './message.entity';
+import { UserService } from '../user/user.service';
+import { ChatService } from '../chat/chat.service';
 
 @Resolver(() => Message)
 export class MessageResolver {
-    constructor(private msgService: MessageService) {}
+    constructor(
+        private readonly msgService: MessageService,
+        private readonly userService: UserService,
+        private readonly chatService: ChatService,
+    ) {}
 
     @Mutation(() => Message)
     async sendMessage(
@@ -12,11 +18,17 @@ export class MessageResolver {
         @Args('senderId', { type: () => Int }) senderId: number,
         @Args('text') text: string,
     ) {
-        return this.msgService.sendMessage(chatId, senderId, text);
+        const sender = await this.userService.findById(senderId);
+        const chat = await this.chatService.findOne(chatId);
+        if (!sender || !chat) {
+            throw new Error('Sender or Chat not found');
+        }
+
+        return this.msgService.createMessage(sender, chat, text);
     }
 
     @Query(() => [Message])
-    async messages(@Args('chatId', { type: () => Int }) chatId: number) {
-        return this.msgService.getMessages(chatId);
+    async getMessages(@Args('chatId', { type: () => Int }) chatId: number) {
+        return this.msgService.getMessagesForChat(chatId);
     }
 }

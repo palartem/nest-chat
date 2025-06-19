@@ -13,6 +13,10 @@ export class UserService {
         private mailService: MailService,
     ) {}
 
+    async findOne(id: number): Promise<User | null> {
+        return this.usersRepository.findOne({ where: { id } });
+    }
+
     async findById(id: number): Promise<User | null> {
         return this.usersRepository.findOne({ where: { id } });
     }

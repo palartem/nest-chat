@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, ManyToMany, JoinTable, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, ManyToMany, JoinTable, CreateDateColumn, OneToMany } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { User } from '../user/user.entity';
 import { Message } from '../message/message.entity';
@@ -20,4 +20,7 @@ export class Chat {
     @Field()
     @CreateDateColumn()
     createdAt: Date;
+
+    @OneToMany(() => Message, (message) => message.chat)
+    messages: Message[]
 }
