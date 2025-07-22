@@ -16,6 +16,14 @@ A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date
 """
 scalar DateTime
 
+type Message {
+  id: ID!
+  content: String!
+  createdAt: DateTime!
+  sender: User!
+  chat: Chat!
+}
+
 type Chat {
   id: ID!
   participants: [User!]!
@@ -31,12 +39,14 @@ type Query {
   hello: String!
   me: User
   chats(userId: Int!): [Chat!]!
+  getMessages(chatId: Int!): [Message!]!
 }
 
 type Mutation {
   register(data: CreateUserInput!): User!
   confirmEmail(userId: String!): User!
   createChat(userAId: Int!, userBId: Int!): Chat!
+  sendMessage(chatId: Int!, senderId: Int!, text: String!): Message!
   login(email: String!, password: String!): LoginResponse!
 }
 
