@@ -29,4 +29,9 @@ export class ChatResolver {
     async chats(@Args('userId', { type: () => Int }) userId: number) {
         return this.chatService.findChatsForUser(userId);
     }
+
+    @Mutation(() => Chat)
+    getOrCreateChat(@Args('userAId') userAId: number, @Args('userBId') userBId: number) {
+        return this.chatService.getOrCreateChat(userAId, userBId);
+    }
 }

@@ -4,7 +4,7 @@ import { Response } from 'express';
 
 @Controller('confirm')
 export class AuthController {
-    constructor(private readonly userService: UserService) {}aa
+    constructor(private readonly userService: UserService) {}
 
     @Get()
     async confirmEmail(@Query('userId') userId: string, @Res() res: Response) {

@@ -9,6 +9,8 @@ export class ChatService {
     constructor(
         @InjectRepository(Chat)
         private chatsRepo: Repository<Chat>,
+        @InjectRepository(User)
+        private usersRepo: Repository<User>,
     ) {}
 
     async findOne(id: number): Promise<Chat | null> {
@@ -42,5 +44,15 @@ export class ChatService {
         }
 
         return this.createChat(userA, userB);
+    }
+    async getOrCreateChat(userAId: number, userBId: number): Promise<Chat> {
+        const userA = await this.usersRepo.findOneBy({ id: userAId });
+        const userB = await this.usersRepo.findOneBy({ id: userBId });
+
+        if (!userA || !userB) {
+            throw new Error('One or both users not found');
+        }
+
+        return this.findOrCreateChat(userA, userB);
     }
 }
