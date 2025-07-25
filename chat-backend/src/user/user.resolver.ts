@@ -23,9 +23,9 @@ export class UserResolver {
 
     @Mutation(() => User)
     async confirmEmail(
-        @Args('userId') userId: string,
+        @Args('token') token: string,
     ): Promise<User> {
-        return this.userService.confirmUser(userId);
+        return this.userService.confirmByToken(token);
     }
 
     @Query(() => User, { nullable: true })

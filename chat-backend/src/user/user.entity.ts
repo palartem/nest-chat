@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+    Entity,
+    PrimaryGeneratedColumn,
+    Column,
+    CreateDateColumn,
+    UpdateDateColumn,
+} from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 
 @Entity()
@@ -22,6 +28,10 @@ export class User {
     @Column({ nullable: true })
     @Field({ nullable: true })
     name?: string;
+
+    @Field(() => String, { nullable: true })
+    @Column({ type: 'varchar', nullable: true })
+    confirmationToken: string | null;
 
     @CreateDateColumn()
     @Field()

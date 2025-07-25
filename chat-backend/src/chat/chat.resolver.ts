@@ -11,7 +11,7 @@ export class ChatResolver {
     ) {}
 
     @Mutation(() => Chat)
-    async createChat(
+    async getOrCreateChat(
         @Args('userAId', { type: () => Int }) userAId: number,
         @Args('userBId', { type: () => Int }) userBId: number,
     ) {
@@ -19,19 +19,16 @@ export class ChatResolver {
         const userB = await this.userService.findById(userBId);
 
         if (!userA || !userB) {
-            throw new Error('User not found');
+            throw new Error('One or both users not found');
         }
 
-        return this.chatService.createChat(userA, userB);
+        return this.chatService.getOrCreateChat(userA.id, userB.id);
     }
 
     @Query(() => [Chat])
-    async chats(@Args('userId', { type: () => Int }) userId: number) {
+    async chats(
+        @Args('userId', { type: () => Int }) userId: number,
+    ) {
         return this.chatService.findChatsForUser(userId);
-    }
-
-    @Mutation(() => Chat)
-    getOrCreateChat(@Args('userAId') userAId: number, @Args('userBId') userBId: number) {
-        return this.chatService.getOrCreateChat(userAId, userBId);
     }
 }

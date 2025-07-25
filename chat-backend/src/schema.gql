@@ -7,6 +7,7 @@ type User {
   email: String!
   confirmed: Boolean!
   name: String
+  confirmationToken: String
   createdAt: DateTime!
   updatedAt: DateTime!
 }
@@ -28,6 +29,7 @@ type Chat {
   id: ID!
   participants: [User!]!
   createdAt: DateTime!
+  lastMessage: Message
 }
 
 type LoginResponse {
@@ -44,8 +46,8 @@ type Query {
 
 type Mutation {
   register(data: CreateUserInput!): User!
-  confirmEmail(userId: String!): User!
-  createChat(userAId: Int!, userBId: Int!): Chat!
+  confirmEmail(token: String!): User!
+  getOrCreateChat(userAId: Int!, userBId: Int!): Chat!
   sendMessage(chatId: Int!, senderId: Int!, text: String!): Message!
   login(email: String!, password: String!): LoginResponse!
 }

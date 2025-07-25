@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, ManyToMany, JoinTable, CreateDateColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, ManyToMany, JoinTable, CreateDateColumn, OneToMany, OneToOne, JoinColumn } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { User } from '../user/user.entity';
 import { Message } from '../message/message.entity';
@@ -23,4 +23,9 @@ export class Chat {
 
     @OneToMany(() => Message, (message) => message.chat)
     messages: Message[]
+
+    @Field(() => Message, { nullable: true })
+    @OneToOne(() => Message, { nullable: true, eager: true })
+    @JoinColumn()
+    lastMessage?: Message;
 }

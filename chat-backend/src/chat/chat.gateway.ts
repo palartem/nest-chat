@@ -10,28 +10,46 @@ import { Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { MessageService } from '../message/message.service';
 import { UserService } from '../user/user.service';
+import { JwtService } from '@nestjs/jwt';
+import { Injectable } from '@nestjs/common';
 
 @WebSocketGateway({ cors: true })
+@Injectable()
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
-    private onlineUsers: Map<string, string> = new Map();
+    private onlineUsers = new Map<number, string>(); // userId -> socketId
 
     constructor(
         private readonly userService: UserService,
         private readonly chatService: ChatService,
         private readonly messageService: MessageService,
+        private readonly jwtService: JwtService,
     ) {}
 
-    handleConnection(client: Socket) {
-        const userId = client.handshake.query.userId as string;
-        if (userId) {
+    async handleConnection(client: Socket) {
+        try {
+            console.log('auth payload:', client.handshake.auth);
+            const token = client.handshake.auth?.token as string;
+            if (!token) {
+                client.disconnect();
+                return;
+            }
+
+            const payload = this.jwtService.verify(token);
+            const userId = payload.sub;
+
             this.onlineUsers.set(userId, client.id);
-            client.join(userId);
+            client.data.userId = userId;
+            client.join(String(userId));
+
             console.log(`User ${userId} connected`);
+        } catch (err) {
+            console.warn('Unauthorized socket connection attempt');
+            client.disconnect();
         }
     }
 
     handleDisconnect(client: Socket) {
-        const userId = [...this.onlineUsers.entries()].find(([, id]) => id === client.id)?.[0];
+        const userId = client.data.userId;
         if (userId) {
             this.onlineUsers.delete(userId);
             console.log(`User ${userId} disconnected`);
@@ -40,24 +58,54 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     @SubscribeMessage('sendMessage')
     async handleMessage(
-        @MessageBody() data: { to: string; message: string; from: string; chatId: number },
+        @MessageBody()
+            data: {
+            to: number;
+            chatId: number;
+            message: string;
+        },
         @ConnectedSocket() client: Socket,
     ) {
-        const { to, message, from, chatId } = data;
-        console.log(data);
-        const sender = await this.userService.findOne(+from);
-        const recipient = await this.userService.findOne(+to);
-        const chat = await this.chatService.findOne(+chatId);
+        const from = client.data.userId;
+        const { to, chatId, message } = data;
 
-        if (sender && recipient && chat) {
-            console.log('2 тест', sender, recipient, chat);
-            await this.messageService.createMessage(sender, chat, message);
+        const sender = await this.userService.findById(from);
+        const recipient = await this.userService.findById(to);
+        const chat = await this.chatService.findByIdWithParticipants(chatId);
 
-            client.to(to).emit('receiveMessage', {
-                from,
-                message,
-                time: new Date().toISOString(),
-            });
+        if (!sender || !recipient || !chat) {
+            console.warn('Invalid message payload:', data);
+            return;
         }
+
+        const isParticipant = chat.participants.some(
+            (user) => user.id === sender.id,
+        );
+        if (!isParticipant) {
+            console.warn(`User ${sender.id} is not a participant of chat ${chatId}`);
+            return;
+        }
+
+        const savedMessage = await this.messageService.createMessage(
+            sender,
+            chat,
+            message,
+        );
+
+        const response = {
+            id: savedMessage.id,
+            chatId,
+            content: message,
+            from,
+            to,
+            createdAt: savedMessage.createdAt,
+        };
+
+        const recipientSocketId = this.onlineUsers.get(to);
+        if (recipientSocketId) {
+            client.to(recipientSocketId).emit('receiveMessage', response);
+        }
+
+        client.emit('receiveMessage', response);
     }
 }

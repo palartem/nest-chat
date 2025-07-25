@@ -5,6 +5,8 @@ import {ApolloDriver, ApolloDriverConfig} from '@nestjs/apollo';
 import {AppResolver} from './app.resolver';
 import {join} from 'path';
 import {ConfigModule, ConfigService} from '@nestjs/config';
+import { BullModule } from '@nestjs/bull';
+import { MailModule } from './mail/mail.module';
 
 import {UserModule} from './user/user.module';
 import {ChatModule} from './chat/chat.module';
@@ -39,6 +41,17 @@ import {MessageModule} from './message/message.module';
         ChatModule,
         AuthModule,
         MessageModule,
+        BullModule.forRootAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: (config: ConfigService) => ({
+                redis: {
+                    host: config.get('REDIS_HOST'),
+                    port: config.get<number>('REDIS_PORT'),
+                },
+            }),
+        }),
+        MailModule,
     ],
     controllers: [],
     providers: [AppResolver],

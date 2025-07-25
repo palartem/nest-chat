@@ -1,34 +1,37 @@
-import { Processor, Process } from '@nestjs/bull';
+import { Process, Processor } from '@nestjs/bull';
 import { Job } from 'bull';
 import * as nodemailer from 'nodemailer';
-import { ConfigService } from '@nestjs/config';
-import { Injectable } from '@nestjs/common';
 
 @Processor('email')
-@Injectable()
 export class MailProcessor {
-    private transporter;
+    private transporter: nodemailer.Transporter;
 
-    constructor(private config: ConfigService) {
+    constructor() {
         this.transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
-                user: this.config.get('EMAIL_USER'),
-                pass: this.config.get('EMAIL_PASS'),
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS,
             },
         });
     }
 
-    @Process('send_confirmation')
-    async handleSendConfirmation(job: Job) {
-        const { email, userId } = job.data;
-        const confirmUrl = `${this.config.get('FRONT_URL')}/confirm?userId=${userId}`;
+    @Process('send-confirmation')
+    async handleSendConfirmation(job: Job<{ email: string; token: string }>) {
+        const { email, token } = job.data;
+
+        const frontendUrl = process.env.FRONT_URL || 'http://localhost:3000';
+        const confirmUrl = `${frontendUrl}/confirm?token=${token}`;
 
         await this.transporter.sendMail({
-            from: this.config.get('EMAIL_USER'),
+            from: `"No Reply" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: 'Подтверждение регистрации',
-            html: `<h2>Подтвердите регистрацию</h2><p><a href="${confirmUrl}">Нажмите сюда</a></p>`,
+            subject: 'Подтвердите регистрацию',
+            html: `
+                <h3>Добро пожаловать!</h3>
+                <p>Пожалуйста, подтвердите регистрацию, перейдя по ссылке:</p>
+                <a href="${confirmUrl}">Подтвердить Email</a>
+            `,
         });
     }
 }

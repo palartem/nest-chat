@@ -17,6 +17,13 @@ export class ChatService {
         return this.chatsRepo.findOne({ where: { id } });
     }
 
+    async findByIdWithParticipants(id: number): Promise<Chat | null> {
+        return this.chatsRepo.findOne({
+            where: { id },
+            relations: ['participants'],
+        });
+    }
+
     async createChat(userA: User, userB: User): Promise<Chat> {
         const chat = this.chatsRepo.create({ participants: [userA, userB] });
         return this.chatsRepo.save(chat);
@@ -31,17 +38,20 @@ export class ChatService {
     }
 
     async findOrCreateChat(userA: User, userB: User): Promise<Chat> {
-        const existingChat = await this.chatsRepo
+        const chats = await this.chatsRepo
             .createQueryBuilder('chat')
-            .leftJoinAndSelect('chat.participants', 'user')
-            .where('user.id IN (:...ids)', { ids: [userA.id, userB.id] })
-            .groupBy('chat.id')
-            .having('COUNT(user.id) = 2')
-            .getOne();
+            .leftJoinAndSelect('chat.participants', 'participant')
+            .where('participant.id = :userAId', { userAId: userA.id })
+            .orWhere('participant.id = :userBId', { userBId: userB.id })
+            .getMany();
 
-        if (existingChat) {
-            return existingChat;
-        }
+        const matched = chats.find(chat => {
+            const ids = chat.participants.map(p => p.id).sort();
+            const target = [userA.id, userB.id].sort();
+            return ids.length === 2 && ids[0] === target[0] && ids[1] === target[1];
+        });
+
+        if (matched) return matched;
 
         return this.createChat(userA, userB);
     }
@@ -54,5 +64,16 @@ export class ChatService {
         }
 
         return this.findOrCreateChat(userA, userB);
+    }
+
+    async findChatsWithMessagesForUser(userId: number): Promise<Chat[]> {
+        return this.chatsRepo
+            .createQueryBuilder('chat')
+            .leftJoinAndSelect('chat.participants', 'participant')
+            .leftJoinAndSelect('chat.messages', 'message')
+            .leftJoinAndSelect('message.sender', 'sender')
+            .where('participant.id = :userId', { userId })
+            .orderBy('message.createdAt', 'DESC')
+            .getMany();
     }
 }

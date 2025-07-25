@@ -19,9 +19,15 @@ export class MessageResolver {
         @Args('text') text: string,
     ) {
         const sender = await this.userService.findById(senderId);
-        const chat = await this.chatService.findOne(chatId);
+        const chat = await this.chatService.findByIdWithParticipants(chatId);
+
         if (!sender || !chat) {
             throw new Error('Sender or Chat not found');
+        }
+
+        const isParticipant = chat.participants.some(user => user.id === sender.id);
+        if (!isParticipant) {
+            throw new Error('Sender is not a participant of this chat');
         }
 
         return this.msgService.createMessage(sender, chat, text);

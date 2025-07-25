@@ -4,6 +4,7 @@ import { User } from './user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class UserService {
@@ -26,17 +27,38 @@ export class UserService {
     }
 
     async createUser(email: string, password: string, name?: string): Promise<User> {
+        const existing = await this.findByEmail(email);
+        if (existing) {
+            throw new Error('Email already registered');
+        }
+
         const hash = await bcrypt.hash(password, 10);
-        const user = this.usersRepository.create({ email, password: hash, name });
+        const token = uuidv4();
+
+        const user = this.usersRepository.create({
+            email,
+            password: hash,
+            name,
+            confirmed: false,
+            confirmationToken: token,
+        });
+
         const savedUser = await this.usersRepository.save(user);
-        await this.mailService.sendConfirmationEmail(email, savedUser.id.toString());
+
+        await this.mailService.sendConfirmationEmail(email, token);
+
         return savedUser;
     }
 
-    async confirmUser(id: string): Promise<User> {
-        const numericId = Number(id);
-        const user = await this.usersRepository.findOneOrFail({ where: { id: numericId } });
+    async confirmByToken(token: string): Promise<User> {
+        const user = await this.usersRepository.findOne({ where: { confirmationToken: token } });
+        if (!user) {
+            throw new Error('Invalid or expired confirmation token');
+        }
+
         user.confirmed = true;
+        user.confirmationToken = null;
+
         return this.usersRepository.save(user);
     }
 }

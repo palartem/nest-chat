@@ -10,6 +10,9 @@ export class MessageService {
     constructor(
         @InjectRepository(Message)
         private messagesRepo: Repository<Message>,
+
+        @InjectRepository(Chat)
+        private chatsRepo: Repository<Chat>, // добавили ChatRepository
     ) {}
 
     async createMessage(sender: User, chat: Chat, content: string): Promise<Message> {
