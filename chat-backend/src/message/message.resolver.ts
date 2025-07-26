@@ -34,7 +34,9 @@ export class MessageResolver {
     }
 
     @Query(() => [Message])
-    async getMessages(@Args('chatId', { type: () => Int }) chatId: number) {
+    async messagesForChat(
+        @Args('chatId', { type: () => Int }) chatId: number,
+    ) {
         return this.msgService.getMessagesForChat(chatId);
     }
 }

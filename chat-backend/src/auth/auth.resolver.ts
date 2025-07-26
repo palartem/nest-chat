@@ -1,15 +1,18 @@
-import { Resolver, Mutation, Args } from '@nestjs/graphql';
+import { Resolver, Mutation, Args, ObjectType, Field } from '@nestjs/graphql';
 import { AuthService } from './auth.service';
 import { User } from '../user/user.entity';
-import { ObjectType, Field } from '@nestjs/graphql';
 
 @ObjectType()
 class LoginResponse {
-    @Field()
-    access_token: string;
+    @Field() access_token: string;
+    @Field() refresh_token: string;
+    @Field(() => User) user: User;
+}
 
-    @Field(() => User)
-    user: User;
+@ObjectType()
+class RefreshResponse {
+    @Field() access_token: string;
+    @Field() refresh_token: string;
 }
 
 @Resolver()
@@ -20,7 +23,12 @@ export class AuthResolver {
     async login(
         @Args('email') email: string,
         @Args('password') password: string,
-    ): Promise<{ access_token: string; user: User }> {
+    ) {
         return this.authService.login(email, password);
+    }
+
+    @Mutation(() => RefreshResponse)
+    async refreshToken(@Args('token') token: string) {
+        return this.authService.refreshToken(token);
     }
 }
