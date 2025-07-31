@@ -1,5 +1,9 @@
 <template>
   <q-page class="flex flex-center">
+      <q-btn
+          @click="handleLogout"
+          label="logout"
+      />
     <img
       alt="Quasar logo"
       src="~assets/quasar-logo-vertical.svg"
@@ -12,6 +16,14 @@
 import { defineComponent } from 'vue';
 
 export default defineComponent({
-  name: 'IndexPage'
+  name: 'IndexPage',
+    data() {
+    },
+    methods: {
+        async handleLogout () {
+            await this.$store.dispatch('auth/logout')
+            this.$router.push('/login')
+        }
+    }
 });
 </script>
