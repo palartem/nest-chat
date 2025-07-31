@@ -16,7 +16,7 @@ import {MessageModule} from './message/message.module';
 @Module({
     imports: [
         ConfigModule.forRoot({
-            isGlobal: true, // чтобы не импортировать в каждый модуль вручную
+            isGlobal: true,
         }),
         TypeOrmModule.forRootAsync({
             imports: [ConfigModule],
@@ -32,10 +32,15 @@ import {MessageModule} from './message/message.module';
                 synchronize: true,
             }),
         }),
-        GraphQLModule.forRoot<ApolloDriverConfig>({
+        GraphQLModule.forRootAsync<ApolloDriverConfig>({
             driver: ApolloDriver,
-            autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
-            playground: true,
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: () => ({
+                autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+                playground: true,
+                context: ({ req, res }) => ({ req, res }),
+            }),
         }),
         UserModule,
         ChatModule,

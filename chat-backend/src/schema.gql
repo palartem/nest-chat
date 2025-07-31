@@ -40,7 +40,7 @@ type LoginResponse {
 
 type RefreshResponse {
   access_token: String!
-  refresh_token: String!
+  user: User!
 }
 
 type Query {
@@ -56,7 +56,8 @@ type Mutation {
   getOrCreateChat(userAId: Int!, userBId: Int!): Chat!
   sendMessage(chatId: Int!, senderId: Int!, text: String!): Message!
   login(email: String!, password: String!): LoginResponse!
-  refreshToken(token: String!): RefreshResponse!
+  refreshToken: RefreshResponse!
+  logout: Boolean!
 }
 
 input CreateUserInput {
