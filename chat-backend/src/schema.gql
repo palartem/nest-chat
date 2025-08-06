@@ -46,6 +46,7 @@ type RefreshResponse {
 type Query {
   hello: String!
   me: User
+  users: [User!]!
   chats(userId: Int!): [Chat!]!
   messagesForChat(chatId: Int!): [Message!]!
 }

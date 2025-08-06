@@ -33,4 +33,9 @@ export class UserResolver {
     async me(@Context() context): Promise<User | null> {
         return this.userService.findById(context.req.user.id);
     }
+
+    @Query(() => [User])
+    async users(): Promise<User[]> {
+        return this.userService.findAll();
+    }
 }

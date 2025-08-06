@@ -1,28 +1,23 @@
 import { Resolver, Query, Mutation, Args, Int } from '@nestjs/graphql';
 import { Chat } from './chat.entity';
 import { ChatService } from './chat.service';
-import { UserService } from '../user/user.service';
 
 @Resolver(() => Chat)
 export class ChatResolver {
-    constructor(
-        private chatService: ChatService,
-        private userService: UserService,
-    ) {}
+    constructor(private chatService: ChatService) {}
 
     @Mutation(() => Chat)
     async getOrCreateChat(
         @Args('userAId', { type: () => Int }) userAId: number,
         @Args('userBId', { type: () => Int }) userBId: number,
     ) {
-        const userA = await this.userService.findById(userAId);
-        const userB = await this.userService.findById(userBId);
+        const chat = await this.chatService.getOrCreateChat(userAId, userBId);
 
-        if (!userA || !userB) {
-            throw new Error('One or both users not found');
+        if (!chat) {
+            throw new Error('❌ Failed to create or find chat');
         }
 
-        return this.chatService.getOrCreateChat(userA.id, userB.id);
+        return chat;
     }
 
     @Query(() => [Chat])

@@ -14,6 +14,22 @@ const routes = [
   },
 
   {
+    path: '/chats',
+    component: () => import('layouts/ChatLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        component: () => import('pages/chat/EmptyChat.vue')
+      },
+      {
+        path: ':chatId',
+        component: () => import('pages/chat/ChatRoom.vue')
+      }
+    ]
+  },
+
+  {
     path: '/:catchAll(.*)*',
     component: () => import('pages/ErrorNotFound.vue')
   }

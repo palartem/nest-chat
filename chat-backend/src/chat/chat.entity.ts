@@ -12,7 +12,7 @@ export class Chat {
 
     // Участники чата
     @Field(() => [User])
-    @ManyToMany(() => User)
+    @ManyToMany(() => User, { eager: true, cascade: true })
     @JoinTable()
     participants: User[];
 
