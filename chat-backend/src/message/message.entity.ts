@@ -4,6 +4,7 @@ import {
     Column,
     CreateDateColumn,
     ManyToOne,
+    JoinColumn,
 } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Chat } from '../chat/chat.entity';
@@ -26,8 +27,11 @@ export class Message {
 
     @Field(() => User)
     @ManyToOne(() => User, { eager: true })
+    @JoinColumn()
     sender: User;
 
-    @ManyToOne(() => Chat, (chat) => chat.messages)
+    @Field(() => Chat)
+    @ManyToOne(() => Chat, (chat) => chat.messages, { eager: false })
+    @JoinColumn({ name: 'chatId' })
     chat: Chat;
 }

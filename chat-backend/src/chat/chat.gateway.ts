@@ -29,45 +29,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         private readonly jwtService: JwtService,
     ) {}
 
-    async handleConnection(client: Socket) {
+    async handleConnection(clientSocket: Socket) {
         try {
-            const token = client.handshake.auth?.token as string;
-            if (!token) return client.disconnect();
+            const accessToken = clientSocket.handshake.auth?.token as string;
+            if (!accessToken) return clientSocket.disconnect();
 
-            const payload = this.jwtService.verify(token);
-            const userId = Number(payload.sub);
-            client.data.userId = userId;
+            const jwtPayload = this.jwtService.verify(accessToken);
+            const userId = Number(jwtPayload.sub);
+            clientSocket.data.userId = userId;
 
-            // персональная комната для событий чата
-            client.join(`user-${userId}`);
+            clientSocket.join(`user-${userId}`);
 
-            // новый онлайн
             if (!this.onlineUsers.has(userId)) {
                 this.onlineUsers.set(userId, new Set());
                 this.server.emit('userOnline', { userId });
             }
-            this.onlineUsers.get(userId)!.add(client.id);
+            this.onlineUsers.get(userId)!.add(clientSocket.id);
 
-            // отправляем список текущих онлайнов подключившемуся
-            const onlineList = Array.from(this.onlineUsers.keys());
-            client.emit('onlineUsers', { userIds: onlineList });
+            // отдать подключившемуся список онлайнов
+            const currentOnlineIds = Array.from(this.onlineUsers.keys());
+            clientSocket.emit('onlineUsers', { userIds: currentOnlineIds });
 
             console.log(`✅ User ${userId} connected`);
-        } catch (e) {
-            console.warn('handleConnection error', e);
-            client.disconnect();
+        } catch (error) {
+            console.warn('handleConnection error', error);
+            clientSocket.disconnect();
         }
     }
 
-    handleDisconnect(client: Socket) {
-        const userId = client.data.userId;
+    handleDisconnect(clientSocket: Socket) {
+        const userId = clientSocket.data.userId;
         if (!userId) return;
 
-        const sockets = this.onlineUsers.get(userId);
-        if (!sockets) return;
+        const socketsOfUser = this.onlineUsers.get(userId);
+        if (!socketsOfUser) return;
 
-        sockets.delete(client.id);
-        if (sockets.size === 0) {
+        socketsOfUser.delete(clientSocket.id);
+        if (socketsOfUser.size === 0) {
             this.onlineUsers.delete(userId);
             this.server.emit('userOffline', { userId: Number(userId) });
         }
@@ -76,83 +74,96 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @SubscribeMessage('joinChat')
     handleJoinChat(
         @MessageBody() body: { chatId: number },
-        @ConnectedSocket() client: Socket
+        @ConnectedSocket() clientSocket: Socket
     ) {
-        const userId = client.data.userId;
+        const userId = clientSocket.data.userId;
         if (!userId) {
-            console.warn('joinChat: no userId');
+            console.warn('joinChat: no userId on socket');
             return;
         }
 
-        const chatId = Number(body?.chatId);
-        if (!chatId) {
+        const chatIdNumber = Number(body?.chatId);
+        if (!chatIdNumber) {
             console.warn('joinChat: invalid payload', body);
             return;
         }
 
-        for (const room of client.rooms) {
-            if (room.startsWith('chat-')) client.leave(room);
+        // выходим из предыдущих комнат чатов
+        for (const roomName of clientSocket.rooms) {
+            if (roomName.startsWith('chat-')) clientSocket.leave(roomName);
         }
-        const room = `chat-${chatId}`;
-        client.join(room);
-        console.log(`🔗 User ${userId} joined room ${room}`);
+
+        const chatRoomName = `chat-${chatIdNumber}`;
+        clientSocket.join(chatRoomName);
+        console.log(`🔗 User ${userId} joined room ${chatRoomName}`);
     }
 
     @SubscribeMessage('sendMessage')
     async handleMessage(
-        @MessageBody() data: { to: number; chatId: number; message: string },
-        @ConnectedSocket() client: Socket,
+        @MessageBody()
+            body: { to: number; chatId: number; message: string },
+        @ConnectedSocket() clientSocket: Socket,
     ) {
-        const from = client.data.userId;
-        const { to, chatId, message } = data;
+        const senderId = Number(clientSocket.data.userId);
+        const recipientId = Number(body.to);
+        const chatIdNumber = Number(body.chatId);
+        const content = body.message;
 
-        const sender = await this.userService.findById(from);
-        const recipient = await this.userService.findById(to);
-        const chat = await this.chatService.findByIdWithParticipants(chatId);
+        // валидация участников/чата
+        const senderUser = await this.userService.findById(senderId);
+        const recipientUser = await this.userService.findById(recipientId);
+        const chatEntity = await this.chatService.findByIdWithParticipants(chatIdNumber);
 
-        if (!sender || !recipient || !chat) {
-            console.warn('⚠ Invalid message payload:', data);
+        if (!senderUser || !recipientUser || !chatEntity) {
+            console.warn('⚠ Invalid message payload:', body);
             return;
         }
 
-        const isParticipant = chat.participants.some((u) => u.id === sender.id);
+        const isParticipant = chatEntity.participants.some(p => p.id === senderUser.id);
         if (!isParticipant) {
-            console.warn(`⚠ User ${sender.id} is not a participant of chat ${chatId}`);
+            console.warn(`⚠ User ${senderUser.id} is not a participant of chat ${chatIdNumber}`);
             return;
         }
 
+        // создаём сообщение
         const savedMessage = await this.messageService.createMessage(
-            sender,
-            chat,
-            message,
+            senderUser,
+            chatEntity,
+            content,
         );
 
-        const response = {
+        const messageEventPayload = {
             id: savedMessage.id,
-            chatId,
-            content: message,
-            from,
-            to,
+            chatId: chatIdNumber,
+            content,
+            from: senderUser.id,
+            to: recipientUser.id,
             createdAt: savedMessage.createdAt,
             sender: {
-                id: sender.id,
-                email: sender.email,
-                name: sender.name,
+                id: senderUser.id,
+                email: senderUser.email,
+                name: senderUser.name,
             },
         };
 
-        // сообщение в комнату чата
-        this.server.to(`chat-${chatId}`).emit('receiveMessage', response);
+        // всем, кто уже в комнате чата
+        const chatRoomName = `chat-${chatIdNumber}`;
+        this.server.to(chatRoomName).emit('receiveMessage', messageEventPayload);
 
-        // обновление lastMessage в персональные комнаты
-        for (const u of chat.participants) {
-            this.server.to(`user-${u.id}`).emit('chatLastMessage', {
-                chatId,
+        // персонально обоим участникам (если они не в комнате, всё равно получат)
+        for (const participant of chatEntity.participants) {
+            this.server.to(`user-${participant.id}`).emit('receiveMessage', messageEventPayload);
+        }
+
+        // обновление lastMessage для сайдбара обоих участников
+        for (const participant of chatEntity.participants) {
+            this.server.to(`user-${participant.id}`).emit('chatLastMessage', {
+                chatId: chatIdNumber,
                 lastMessage: {
                     id: savedMessage.id,
-                    content: message,
+                    content,
                     createdAt: savedMessage.createdAt,
-                    senderId: sender.id,
+                    senderId: senderUser.id,
                 },
                 lastMessageAt: savedMessage.createdAt,
             });

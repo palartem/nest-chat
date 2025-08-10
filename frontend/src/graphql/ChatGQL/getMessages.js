@@ -11,6 +11,9 @@ export const GET_MESSAGES = gql`
         email
         name
       }
+      chat { 
+        id 
+      }
     }
   }
 `

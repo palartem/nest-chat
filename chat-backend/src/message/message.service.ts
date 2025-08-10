@@ -26,7 +26,7 @@ export class MessageService {
     async getMessagesForChat(chatId: number): Promise<Message[]> {
         return this.messagesRepo.find({
             where: { chat: { id: chatId } },
-            relations: ['sender'],
+            relations: ['sender', 'chat'],
             order: { createdAt: 'ASC' },
         });
     }

@@ -5,20 +5,23 @@
         style="flex: 1; overflow-y: auto"
     >
         <div
-            v-for="msg in messages"
+            v-for="msg in messages.filter(m => m && m.id)"
             :key="msg.id"
             class="messages-container q-py-sm"
-            :class="msg.sender?.id === me.id ? 'justify-end' : 'justify-start'"
+            :class="isMe(msg) ? 'justify-end' : 'justify-start'"
         >
             <div
                 class="message-item rounded-border"
-                :class="{'message-item--me': msg.sender?.id === me.id}"
+                :class="{ 'message-item--me': isMe(msg) }"
                 style="max-width: 70%; word-break: break-word;"
             >
                 <div class="massage-item__name text-caption q-mb-xs">
-                    {{ formatSender(msg) }} — {{ formatTime(msg.createdAt) }}
+                    {{ formatSender(msg) }}
                 </div>
-                {{ msg.content }}
+                <div class="message-item__content">
+                    {{ msg.content }}
+                    <div class="message-item__time">{{ formatTime(msg.createdAt) }}</div>
+                </div>
             </div>
         </div>
     </div>
@@ -31,7 +34,7 @@ export default {
     name: 'ChatMessages',
     computed: {
         ...mapGetters('chat', ['messages']),
-        ...mapGetters('auth', { me: 'currentUser' }),
+        ...mapGetters('auth', { currentUser: 'currentUser' }),
     },
     watch: {
         messages() {
@@ -43,21 +46,25 @@ export default {
     },
     methods: {
         scrollToBottom() {
-            const el = this.$refs.messagesContainer
-            if (el) {
-                el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            const container = this.$refs.messagesContainer
+            if (container) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
             }
         },
-        formatTime(dateStr) {
-            const d = new Date(dateStr)
-            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        formatTime(dateString) {
+            const date = new Date(dateString)
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         },
-        formatSender(msg) {
-            return msg.sender?.id === this.me.id ? 'Вы' : msg.sender?.name
-        }
+        formatSender(message) {
+            return this.isMe(message) ? 'Вы' : message.sender?.name
+        },
+        isMe(message) {
+            return Number(this.currentUser?.id) === Number(message?.sender?.id ?? message?.from)
+        },
     }
 }
 </script>
+
 <style lang="scss">
 .messages-container {
     display: flex;
@@ -72,6 +79,16 @@ export default {
     color: black;
     .massage-item__name {
         color: #757575;
+    }
+    .message-item__content {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .message-item__time {
+        display: flex;
+        align-items: flex-end;
+        flex-shrink: 0;
     }
     &--me {
         background: var(--q-primary);

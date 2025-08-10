@@ -25,7 +25,7 @@
                 <q-splitter
                     v-model="splitterModel"
                     class="full-height"
-                    :limits="[15, 50]"
+                    :limits="[0, 50]"
                 >
                     <template #before>
                         <ChatUsersList />
