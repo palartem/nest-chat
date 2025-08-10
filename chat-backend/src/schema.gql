@@ -22,7 +22,6 @@ type Message {
   content: String!
   createdAt: DateTime!
   sender: User!
-  chat: Chat!
 }
 
 type Chat {

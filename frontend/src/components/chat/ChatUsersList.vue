@@ -1,80 +1,94 @@
 <template>
-    <q-scroll-area class="bg-grey-1" style="height: 100%">
-        <q-toolbar>
+    <div class="bg-grey-1 flex column no-wrap" style="height: 100%">
+        <q-toolbar class="col-auto q-pa-md">
             <q-toolbar-title>Чаты</q-toolbar-title>
         </q-toolbar>
 
-        <q-list>
-            <q-item
-                v-for="user in chatUsers"
-                :key="user.id"
-                clickable
-                :active="isActiveChat(user.id)"
-                active-class="bg-primary text-white"
-                @click="openChat(user)"
-            >
-                <q-item-section avatar>
-                    <q-avatar color="primary" text-color="white">
-                        {{ getInitial(user.name || user.email) }}
-                    </q-avatar>
-                </q-item-section>
+        <div class="col overflow-auto">
+            <q-list>
+                <q-item
+                    v-for="user in chatUsers"
+                    :key="user.id"
+                    clickable
+                    :active="isActiveChat(user.id)"
+                    active-class="bg-primary text-white"
+                    @click="openChat(user)"
+                >
+                    <q-item-section avatar>
+                        <q-avatar color="primary" text-color="white">
+                            {{ getInitial(user.name) }}
+                            <q-badge
+                                v-if="isOnline(user.id)"
+                                color="green"
+                                rounded
+                                floating
+                                class="q-badge--online"
+                            />
+                        </q-avatar>
+                    </q-item-section>
 
-                <q-item-section>
-                    {{ user.name || user.email }}
-                </q-item-section>
-            </q-item>
-        </q-list>
-    </q-scroll-area>
+                    <!-- Имя и последнее сообщение -->
+                    <q-item-section>
+                        <q-item-label>{{ user.name }}</q-item-label>
+                        <q-item-label caption class="text-grey">
+                            {{ getLastMessageForUser(user.id) }}
+                        </q-item-label>
+                    </q-item-section>
+                </q-item>
+            </q-list>
+        </div>
+    </div>
 </template>
 
 <script>
-import { mapState } from 'vuex'
+import { mapState, mapGetters } from 'vuex'
 
 export default {
     name: 'ChatUsersList',
 
     computed: {
         ...mapState('user', ['users']),
-        me() {
-            return this.$store.state.auth.user
-        },
+        ...mapState('chat', ['chats']),
+        ...mapState('auth', ['user']),
+        ...mapGetters('chat', ['isOnline']),
+
         chatUsers() {
-            // убираем себя из списка
-            return this.users.filter(u => u.id !== this.me.id)
-        }
+            return this.users.filter(u => u.id !== this.user.id)
+        },
     },
 
-    async mounted() {
+    async mounted () {
         await this.$store.dispatch('user/loadUsers')
     },
 
     methods: {
         getInitial(name) {
-            if (!name) return '?'
-            return name.trim().charAt(0).toUpperCase()
+            return name?.trim().charAt(0).toUpperCase() || '?'
         },
+
         async openChat(user) {
             try {
-                const userAId = this.me.id
-                const userBId = user.id
-                const chat = await this.$store.dispatch('chat/getOrCreateChat', { userAId, userBId })
-                if (chat?.id) {
-                    this.$router.push(`/chats/${chat.id}`)
-                } else {
-                    console.error('Чат не был создан или получен:', chat)
-                }
+                const chat = await this.$store.dispatch('chat/getOrCreateChat', {
+                    userAId: this.user.id,
+                    userBId: user.id,
+                })
+                if (chat?.id) this.$router.push(`/chats/${chat.id}`)
             } catch (err) {
                 console.error('Ошибка при создании/получении чата:', err)
             }
         },
+
         isActiveChat(userId) {
             const currentChatId = this.$route.params.chatId
             if (!currentChatId) return false
-            const chat = this.$store.state.chat.chats.find((c) =>
-                c.participants.some((p) => p.id === userId)
-            )
+            const chat = this.chats.find(c => c.participants.some(p => p.id === userId))
             return chat && String(chat.id) === currentChatId
-        }
-    }
+        },
+
+        getLastMessageForUser(userId) {
+            const chat = this.chats.find(c => c.participants.some(p => p.id === userId))
+            return chat?.lastMessage?.content || 'Нет сообщений'
+        },
+    },
 }
 </script>

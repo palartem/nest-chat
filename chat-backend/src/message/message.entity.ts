@@ -25,10 +25,9 @@ export class Message {
     createdAt: Date;
 
     @Field(() => User)
-    @ManyToOne(() => User)
+    @ManyToOne(() => User, { eager: true })
     sender: User;
 
-    @Field(() => Chat)
-    @ManyToOne(() => Chat)
+    @ManyToOne(() => Chat, (chat) => chat.messages)
     chat: Chat;
 }

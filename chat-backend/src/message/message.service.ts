@@ -12,12 +12,15 @@ export class MessageService {
         private messagesRepo: Repository<Message>,
 
         @InjectRepository(Chat)
-        private chatsRepo: Repository<Chat>, // добавили ChatRepository
+        private chatsRepo: Repository<Chat>,
     ) {}
 
     async createMessage(sender: User, chat: Chat, content: string): Promise<Message> {
         const msg = this.messagesRepo.create({ sender, chat, content });
-        return this.messagesRepo.save(msg);
+        const savedMsg = await this.messagesRepo.save(msg);
+        chat.lastMessage = savedMsg;
+        await this.chatsRepo.save(chat);
+        return savedMsg;
     }
 
     async getMessagesForChat(chatId: number): Promise<Message[]> {

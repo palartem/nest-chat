@@ -20,7 +20,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
 
-    // userId -> Set<socketId>
     private onlineUsers = new Map<number, Set<string>>();
 
     constructor(
@@ -33,26 +32,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     async handleConnection(client: Socket) {
         try {
             const token = client.handshake.auth?.token as string;
-            if (!token) {
-                client.disconnect();
-                return;
-            }
+            if (!token) return client.disconnect();
 
             const payload = this.jwtService.verify(token);
-            const userId = payload.sub;
+            const userId = Number(payload.sub);
             client.data.userId = userId;
 
-            // добавляем сокет пользователя
+            // персональная комната для событий чата
+            client.join(`user-${userId}`);
+
+            // новый онлайн
             if (!this.onlineUsers.has(userId)) {
                 this.onlineUsers.set(userId, new Set());
                 this.server.emit('userOnline', { userId });
             }
-
             this.onlineUsers.get(userId)!.add(client.id);
 
+            // отправляем список текущих онлайнов подключившемуся
+            const onlineList = Array.from(this.onlineUsers.keys());
+            client.emit('onlineUsers', { userIds: onlineList });
+
             console.log(`✅ User ${userId} connected`);
-        } catch (err) {
-            console.warn('❌ Unauthorized socket connection attempt');
+        } catch (e) {
+            console.warn('handleConnection error', e);
             client.disconnect();
         }
     }
@@ -65,29 +67,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (!sockets) return;
 
         sockets.delete(client.id);
-
         if (sockets.size === 0) {
             this.onlineUsers.delete(userId);
-            this.server.emit('userOffline', { userId });
+            this.server.emit('userOffline', { userId: Number(userId) });
+        }
+    }
+
+    @SubscribeMessage('joinChat')
+    handleJoinChat(
+        @MessageBody() body: { chatId: number },
+        @ConnectedSocket() client: Socket
+    ) {
+        const userId = client.data.userId;
+        if (!userId) {
+            console.warn('joinChat: no userId');
+            return;
         }
 
-        console.log(`❌ User ${userId} disconnected`);
+        const chatId = Number(body?.chatId);
+        if (!chatId) {
+            console.warn('joinChat: invalid payload', body);
+            return;
+        }
+
+        for (const room of client.rooms) {
+            if (room.startsWith('chat-')) client.leave(room);
+        }
+        const room = `chat-${chatId}`;
+        client.join(room);
+        console.log(`🔗 User ${userId} joined room ${room}`);
     }
 
     @SubscribeMessage('sendMessage')
     async handleMessage(
-        @MessageBody()
-            data: {
-            to: number;
-            chatId: number;
-            message: string;
-        },
+        @MessageBody() data: { to: number; chatId: number; message: string },
         @ConnectedSocket() client: Socket,
     ) {
         const from = client.data.userId;
         const { to, chatId, message } = data;
 
-        // проверяем участников
         const sender = await this.userService.findById(from);
         const recipient = await this.userService.findById(to);
         const chat = await this.chatService.findByIdWithParticipants(chatId);
@@ -103,7 +121,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             return;
         }
 
-        // сохраняем сообщение
         const savedMessage = await this.messageService.createMessage(
             sender,
             chat,
@@ -124,16 +141,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             },
         };
 
-        // отправляем всем соединениям получателя
-        const recipientSockets = this.onlineUsers.get(to);
-        recipientSockets?.forEach((socketId) => {
-            this.server.to(socketId).emit('receiveMessage', response);
-        });
+        // сообщение в комнату чата
+        this.server.to(`chat-${chatId}`).emit('receiveMessage', response);
 
-        // отправляем всем соединениям отправителя
-        const senderSockets = this.onlineUsers.get(from);
-        senderSockets?.forEach((socketId) => {
-            this.server.to(socketId).emit('receiveMessage', response);
-        });
+        // обновление lastMessage в персональные комнаты
+        for (const u of chat.participants) {
+            this.server.to(`user-${u.id}`).emit('chatLastMessage', {
+                chatId,
+                lastMessage: {
+                    id: savedMessage.id,
+                    content: message,
+                    createdAt: savedMessage.createdAt,
+                    senderId: sender.id,
+                },
+                lastMessageAt: savedMessage.createdAt,
+            });
+        }
     }
 }

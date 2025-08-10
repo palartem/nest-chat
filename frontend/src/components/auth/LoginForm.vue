@@ -65,7 +65,7 @@ export default {
 
                 this.$store.commit('auth/setAuth', { token: access_token, user })
                 console.log('🔥 TOKEN после логина:', this.$store.state.auth.token)
-                this.$router.push('/')
+                this.$router.push('/chats')
 
             } catch (err) {
                 this.error = err.message || 'Login failed'

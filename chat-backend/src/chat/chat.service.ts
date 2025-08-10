@@ -39,6 +39,7 @@ export class ChatService {
             .leftJoin('chat.participants', 'participant')
             .leftJoinAndSelect('chat.participants', 'allParticipants')
             .leftJoinAndSelect('chat.lastMessage', 'lastMessage')
+            .leftJoinAndSelect('lastMessage.sender', 'lastMessageSender')
             .where('participant.id = :userId', { userId })
             .orderBy('lastMessage.createdAt', 'DESC', 'NULLS LAST')
             .getMany();

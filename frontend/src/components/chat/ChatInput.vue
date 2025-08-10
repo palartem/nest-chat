@@ -1,11 +1,13 @@
 <template>
-    <div class="row q-gutter-sm items-center">
+    <div class="row items-start chat-input">
         <q-input
             v-model="message"
             filled
             dense
+            autogrow
             placeholder="Введите сообщение..."
-            class="col-grow"
+            class="col-grow overflow-auto"
+            style="max-height: 130px"
             @keyup.enter="handleSend"
         />
         <q-btn color="primary" icon="send" @click="handleSend"/>
@@ -31,3 +33,8 @@ export default {
     },
 }
 </script>
+<style lang="scss">
+.chat-input {
+    gap: 10px;
+}
+</style>

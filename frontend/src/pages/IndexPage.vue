@@ -19,11 +19,5 @@ export default defineComponent({
   name: 'IndexPage',
     data() {
     },
-    methods: {
-        async handleLogout () {
-            await this.$store.dispatch('auth/logout')
-            this.$router.push('/login')
-        }
-    }
 });
 </script>
