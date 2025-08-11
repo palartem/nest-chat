@@ -45,8 +45,13 @@ export default defineRouter(async function () {
   Router.beforeEach((to, from, next) => {
     const token = store.getters['auth/accessToken']
     console.log('🔑 Проверка токена:', token)
-    if (to.meta.requiresAuth && !token) next('/login')
-    else next()
+    if (to.meta.requiresAuth && !token) {
+      return next('/login')
+    }
+    if (token && (to.path === '/login' || to.path === '/')) {
+      return next('/chats')
+    }
+    next()
   })
 
   return Router
