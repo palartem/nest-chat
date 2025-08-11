@@ -7,14 +7,47 @@
                     :is-online="!!(chatPartner && isOnline(chatPartner.id))"
                     size="40px"
                 />
-                <div class="header-user__name">
-                    {{ chatPartnerName }}
+                <div class="header-user__name">{{ chatPartnerName }}</div>
+
+                <div class="q-ml-md row items-center q-gutter-sm">
+                    <q-btn
+                        v-if="chatPartner && !callActive"
+                        color="primary"
+                        icon="phone"
+                        label="Позвонить"
+                        @click="startCall()"
+                    />
+                    <q-btn
+                        v-if="callActive"
+                        color="negative"
+                        icon="call_end"
+                        label="Завершить"
+                        @click="endCall()"
+                    />
                 </div>
             </div>
         </div>
 
-        <ChatMessages class="col overflow-auto q-px-md" />
+        <!-- Блок видео виден только во время звонка -->
+        <div v-if="callActive" class="q-pa-md row q-gutter-md">
+            <video
+                ref="localVideoRef"
+                autoplay
+                playsinline
+                muted
+                class="col-4"
+                style="background:#000; border-radius:8px; max-height:220px"
+            ></video>
+            <video
+                ref="remoteVideoRef"
+                autoplay
+                playsinline
+                class="col-8"
+                style="background:#000; border-radius:8px; max-height:220px"
+            ></video>
+        </div>
 
+        <ChatMessages class="col overflow-auto q-px-md" />
         <ChatInput class="col-auto q-pa-md" @send="sendMessage" />
     </q-page>
 </template>
@@ -32,6 +65,7 @@ export default {
     computed: {
         ...mapGetters('chat', ['messages', 'chats', 'isOnline']),
         ...mapGetters('auth', { me: 'currentUser' }),
+        ...mapGetters('calls', { callActive: 'callActive', localStream: 'localStream', remoteStream: 'remoteStream' }),
 
         chatId () {
             return Number(this.$route.params.chatId)
@@ -52,16 +86,27 @@ export default {
         }
     },
 
-    async mounted () {
-        await this.enterRoom(this.chatId)
-    },
-
     watch: {
         '$route.params.chatId': {
             async handler (val) {
                 await this.enterRoom(Number(val))
             }
+        },
+        localStream (stream) {
+            const el = this.$refs.localVideoRef
+            if (el && stream && el.srcObject !== stream) el.srcObject = stream
+        },
+        remoteStream (stream) {
+            const el = this.$refs.remoteVideoRef
+            if (el && stream && el.srcObject !== stream) el.srcObject = stream
         }
+    },
+
+    async mounted () {
+        await this.enterRoom(this.chatId)
+        // Привяжем уже имеющиеся стримы (если звонок активен)
+        if (this.localStream && this.$refs.localVideoRef) this.$refs.localVideoRef.srcObject = this.localStream
+        if (this.remoteStream && this.$refs.remoteVideoRef) this.$refs.remoteVideoRef.srcObject = this.remoteStream
     },
 
     methods: {
@@ -72,6 +117,18 @@ export default {
 
         async sendMessage (content) {
             await this.$store.dispatch('chat/sendMessage', content)
+        },
+
+        async startCall () {
+            if (!this.chatPartner) return
+            await this.$store.dispatch('calls/startCall', {
+                chatId: this.chatId,
+                toUserId: Number(this.chatPartner.id),
+            })
+        },
+
+        endCall () {
+            this.$store.dispatch('calls/endCall')
         }
     }
 }

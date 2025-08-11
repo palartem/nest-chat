@@ -162,6 +162,23 @@ const actions = {
             })
         })
 
+        socketInstance.on('callInvite', ({ fromUserId, chatId, sdp }) => {
+            // Принимающая сторона — открываем медиапотоки и отправляем answer
+            this.dispatch('calls/receiveCall', { fromUserId, chatId, sdp }, { root: true });
+        });
+
+        socketInstance.on('callAnswer', ({ sdp }) => {
+            this.dispatch('calls/handleCallAnswer', { sdp }, { root: true });
+        });
+
+        socketInstance.on('callIce', ({ candidate }) => {
+            this.dispatch('calls/handleIceCandidate', { candidate }, { root: true });
+        });
+
+        socketInstance.on('callEnd', () => {
+            this.dispatch('calls/endCallSilent', null, { root: true });
+        });
+
         const { markRaw } = await import('vue')
         commit('SET_SOCKET', markRaw(socketInstance))
     },
