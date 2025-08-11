@@ -126,7 +126,13 @@ const actions = {
             return
         }
 
-        const socketInstance = io('http://localhost:3000', { auth: { token } })
+        const wsUrl = process.env.VITE_WS_URL
+        if (!wsUrl) {
+            console.error('❌ VITE_WS_URL is not set in .env')
+            return
+        }
+
+        const socketInstance = io(wsUrl, { auth: { token } })
 
         socketInstance.on('connect', () => {
             console.log('🟢 WS connected')
