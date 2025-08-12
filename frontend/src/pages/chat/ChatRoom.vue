@@ -8,23 +8,26 @@
                     size="40px"
                 />
                 <div class="header-user__name">{{ chatPartnerName }}</div>
-
-                <div class="q-ml-md row items-center q-gutter-sm">
-                    <q-btn
-                        v-if="chatPartner && !callActive"
-                        color="primary"
-                        icon="phone"
-                        label="Позвонить"
-                        @click="startCall()"
-                    />
-                    <q-btn
-                        v-if="callActive"
-                        color="negative"
-                        icon="call_end"
-                        label="Завершить"
-                        @click="endCall()"
-                    />
-                </div>
+            </div>
+            <div class="q-ml-md row items-center">
+                <q-btn
+                    v-if="chatPartner && !callActive"
+                    color="primary"
+                    icon="phone"
+                    round
+                    @click="startCall()"
+                >
+                    <q-tooltip>Позвонить</q-tooltip>
+                </q-btn>
+                <q-btn
+                    v-if="callActive"
+                    color="negative"
+                    icon="call_end"
+                    round
+                    @click="endCall()"
+                >
+                    <q-tooltip>Завершить</q-tooltip>
+                </q-btn>
             </div>
         </div>
         <div v-if="callActive" class="container-video q-pa-md">
@@ -155,5 +158,10 @@ export default {
     &__item {
         width: 30%;
     }
+}
+.chat-room__header {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
 }
 </style>

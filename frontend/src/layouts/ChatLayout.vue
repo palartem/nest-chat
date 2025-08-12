@@ -5,7 +5,7 @@
     >
         <div class="flex justify-between full-height">
             <q-header elevated class="bg-primary text-white">
-                <q-toolbar class="q-py-sm">
+                <q-toolbar class="q-py-sm q-px-md">
                     <q-toolbar-title>
                         Nest chat
                     </q-toolbar-title>
