@@ -31,6 +31,7 @@ function rtcConfig () {
 
     const forceTurn = String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
     const disableTurnInLocal = String(import.meta.env.VITE_DISABLE_TURN_LOCAL || '1') === '1'
+    const tcpOnly = true // при форс-TURN используем только transport=tcp (включая TLS 5349)
 
     const host = window.location.hostname
     const isLocal = isLocalNetworkHost(host)
@@ -40,18 +41,25 @@ function rtcConfig () {
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
 
+    let turnUrls = urls
+    if (forceTurn && tcpOnly) {
+        turnUrls = urls.filter(u => /transport=tcp/i.test(u))
+    }
+
     const canUseTurn =
-        urls.length && username && credential &&
+        turnUrls.length && username && credential &&
         (!isLocal || (isLocal && !disableTurnInLocal) || forceTurn)
 
-    if (canUseTurn) iceServers.push({ urls, username, credential })
+    if (canUseTurn) {
+        iceServers.push({ urls: turnUrls, username, credential })
+    }
 
     const cfg = { iceServers, ...(forceTurn ? { iceTransportPolicy: 'relay' } : {}) }
 
     console.log('[RTC] host:', host,
         '| local:', isLocal,
         '| forceTurn:', forceTurn,
-        '| turnAdded:', canUseTurn,
+        '| turnAdded:', !!canUseTurn,
         '| policy:', forceTurn ? 'relay' : 'all')
 
     return cfg
@@ -65,11 +73,11 @@ function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit })
     const remoteStream = new MediaStream()
 
     peerConnection.ontrack = (event) => {
-        console.log('[CALL] Remote track received:', event.streams, event.track)
-        event.streams[0]?.getTracks().forEach(track => {
-            console.log('[CALL] Adding remote track:', track.kind, track.id)
-            remoteStream.addTrack(track)
-        })
+        console.log('[CALL] Remote track:', event.track?.kind, event.track?.id)
+        const already = remoteStream.getTracks().some(t => t.id === event.track?.id)
+        if (!already && event.track) {
+            remoteStream.addTrack(event.track)
+        }
         commit('SET_REMOTE_STREAM', remoteStream)
     }
 
