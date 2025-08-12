@@ -34,36 +34,46 @@ function rtcConfig () {
     const username = import.meta.env.VITE_TURN_USERNAME
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
 
-    // === Режим принудительного TURN: только TCP/TLS, без STUN
     if (isForceTurn()) {
-        const tcp = urls.filter(u => /transport=tcp/i.test(u))
-        const tls5349 = tcp.filter(u => /^turns:/i.test(u) && /:5349\b/i.test(u))
-        const turnTcp = tls5349.length ? tls5349 : tcp
+        // оставляем только TCP
+        let tcp = urls.filter(u => /transport=tcp/i.test(u))
 
-        if (!turnTcp.length) {
+        // если используем metered и есть TLS 5349 — добавим запасной 3478/tcp
+        const hasMetered = tcp.some(u => /global\.relay\.metered\.ca/i.test(u))
+        const has5349 = tcp.some(u => /^turns:/i.test(u) && /:5349\b/i.test(u))
+        const has3478tcp = tcp.some(u => /:3478\?transport=tcp/i.test(u))
+        if (hasMetered && has5349 && !has3478tcp) {
+            tcp = [...tcp, 'turn:global.relay.metered.ca:3478?transport=tcp']
+        }
+
+        // если всё равно пусто — предупредим
+        if (!tcp.length) {
             console.error('[RTC] FORCE_TURN=1, но нет ни одного TURN c transport=tcp в VITE_TURN_URLS')
         }
-        console.log('[RTC] force TURN TCP only:', turnTcp)
 
+        // стараемся брать TLS 5349, но 3478/tcp тоже оставляем
+        const tlsFirst = [
+            ...tcp.filter(u => /^turns:/i.test(u) && /:5349\b/i.test(u)),
+            ...tcp.filter(u => !(/^turns:/i.test(u) && /:5349\b/i.test(u)))
+        ]
+
+        console.log('[RTC] force TURN TCP only:', tlsFirst)
         return {
-            iceServers: turnTcp.length ? [{ urls: turnTcp, username, credential }] : [],
+            iceServers: tlsFirst.length ? [{ urls: tlsFirst, username, credential }] : [],
             iceTransportPolicy: 'relay'
         }
     }
 
-    // === Обычный режим: P2P (STUN), TURN как запасной
+    // обычный режим (P2P приоритет, TURN запасной)
     const host = window.location.hostname
     const isLocal = isLocalNetworkHost(host)
-
     const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
-
     if (urls.length && username && credential) {
         iceServers.push({ urls, username, credential })
     }
-
     const cfg = { iceServers }
     console.log('[RTC] host:', host, '| local:', isLocal, '| policy: all')
     return cfg
@@ -90,7 +100,6 @@ function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit })
             return
         }
         const candStr = event.candidate.candidate || ''
-        // режем UDP relay-кандидатов при форсе TURN
         if (force && dropUdpRelay(candStr)) {
             console.warn('[CALL] Drop LOCAL UDP relay candidate (force TCP):', candStr)
             return
@@ -99,6 +108,9 @@ function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit })
         socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
     }
 
+    peerConnection.onicegatheringstatechange = () => {
+        console.log('[CALL] ICE gathering state:', peerConnection.iceGatheringState)
+    }
     peerConnection.oniceconnectionstatechange = () => {
         console.log('[CALL] ICE state:', peerConnection.iceConnectionState)
     }
