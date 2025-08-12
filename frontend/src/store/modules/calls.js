@@ -33,8 +33,9 @@ function rtcConfig () {
         .split(',').map(s => s.trim()).filter(Boolean)
     const username = import.meta.env.VITE_TURN_USERNAME
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
+    const forceTurn = isForceTurn()
 
-    if (isForceTurn()) {
+    if (forceTurn) {
         // оставляем только TCP
         let tcp = urls.filter(u => /transport=tcp/i.test(u))
 
@@ -46,34 +47,38 @@ function rtcConfig () {
             tcp = [...tcp, 'turn:global.relay.metered.ca:3478?transport=tcp']
         }
 
-        // если всё равно пусто — предупредим
-        if (!tcp.length) {
+        // порядок: сначала TLS:5349, затем остальное (напр. 3478/tcp)
+        const ordered = [
+            ...tcp.filter(u => /^turns:/i.test(u) && /:5349\b/i.test(u)),
+            ...tcp.filter(u => !( /^turns:/i.test(u) && /:5349\b/i.test(u) ))
+        ]
+
+
+        const iceServers = ordered.map(u => ({ urls: u, username, credential }))
+
+        if (!iceServers.length) {
             console.error('[RTC] FORCE_TURN=1, но нет ни одного TURN c transport=tcp в VITE_TURN_URLS')
         }
 
-        // стараемся брать TLS 5349, но 3478/tcp тоже оставляем
-        const tlsFirst = [
-            ...tcp.filter(u => /^turns:/i.test(u) && /:5349\b/i.test(u)),
-            ...tcp.filter(u => !(/^turns:/i.test(u) && /:5349\b/i.test(u)))
-        ]
-
-        console.log('[RTC] force TURN TCP only:', tlsFirst)
+        console.log('[RTC] force TURN TCP only, iceServers:', iceServers)
         return {
-            iceServers: tlsFirst.length ? [{ urls: tlsFirst, username, credential }] : [],
+            iceServers,
             iceTransportPolicy: 'relay'
         }
     }
 
-    // обычный режим (P2P приоритет, TURN запасной)
+    // обычный режим (P2P приоритет, TURN как запасной)
     const host = window.location.hostname
     const isLocal = isLocalNetworkHost(host)
+
     const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
     if (urls.length && username && credential) {
-        iceServers.push({ urls, username, credential })
+        urls.forEach(u => iceServers.push({ urls: u, username, credential }))
     }
+
     const cfg = { iceServers }
     console.log('[RTC] host:', host, '| local:', isLocal, '| policy: all')
     return cfg
@@ -118,7 +123,9 @@ function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit })
         console.log('[CALL] Conn state:', peerConnection.connectionState)
     }
     peerConnection.onicecandidateerror = (e) => {
-        console.warn('[CALL] ICE candidate error:', e)
+        console.warn('[CALL] ICE candidate error:', {
+            url: e.url, hostCandidate: e.hostCandidate, errorCode: e.errorCode, errorText: e.errorText
+        })
     }
 
     return peerConnection
