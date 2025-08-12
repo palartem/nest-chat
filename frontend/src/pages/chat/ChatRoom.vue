@@ -27,22 +27,20 @@
                 </div>
             </div>
         </div>
-
-        <!-- Блок видео виден только во время звонка -->
-        <div v-if="callActive" class="q-pa-md row q-gutter-md">
+        <div v-if="callActive" class="container-video q-pa-md">
             <video
                 ref="localVideoRef"
                 autoplay
                 playsinline
                 muted
-                class="col-4"
+                class="container-video__item"
                 style="background:#000; border-radius:8px; max-height:220px"
             ></video>
             <video
                 ref="remoteVideoRef"
                 autoplay
                 playsinline
-                class="col-8"
+                class="container-video__item"
                 style="background:#000; border-radius:8px; max-height:220px"
             ></video>
         </div>
@@ -143,6 +141,19 @@ export default {
 
     &__name {
         font-size: 20px;
+    }
+}
+.container-video {
+    position: absolute;
+    top: 70px;
+    left: 0;
+    right: 0;
+    z-index: 99;
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    &__item {
+        width: 30%;
     }
 }
 </style>

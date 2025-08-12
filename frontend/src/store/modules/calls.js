@@ -25,44 +25,29 @@ function isLocalNetworkHost (host) {
 }
 
 function rtcConfig () {
-    const urls = (import.meta.env.VITE_TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean)
+    const urls = (import.meta.env.VITE_TURN_URLS || '')
+        .split(',').map(s => s.trim()).filter(Boolean)
     const username = import.meta.env.VITE_TURN_USERNAME
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
-
     const forceTurn = String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
-    const disableTurnInLocal = String(import.meta.env.VITE_DISABLE_TURN_LOCAL || '1') === '1'
-    const tcpOnly = true // при форс-TURN используем только transport=tcp (включая TLS 5349)
 
-    const host = window.location.hostname
-    const isLocal = isLocalNetworkHost(host)
-
-    const iceServers = [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-
-    let turnUrls = urls
-    if (forceTurn && tcpOnly) {
-        turnUrls = urls.filter(u => /transport=tcp/i.test(u))
+    if (forceTurn) {
+        const turnTcp = urls.filter(u => /turns:.*5349\?transport=tcp/i.test(u))
+        console.log('[RTC] force TURN TCP only:', turnTcp)
+        return {
+            iceServers: turnTcp.length ? [{ urls: turnTcp, username, credential }] : [],
+            iceTransportPolicy: 'relay'
+        }
     }
 
-    const canUseTurn =
-        turnUrls.length && username && credential &&
-        (!isLocal || (isLocal && !disableTurnInLocal) || forceTurn)
-
-    if (canUseTurn) {
-        iceServers.push({ urls: turnUrls, username, credential })
+    // обычный режим
+    return {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            ...(urls && username && credential ? [{ urls, username, credential }] : [])
+        ]
     }
-
-    const cfg = { iceServers, ...(forceTurn ? { iceTransportPolicy: 'relay' } : {}) }
-
-    console.log('[RTC] host:', host,
-        '| local:', isLocal,
-        '| forceTurn:', forceTurn,
-        '| turnAdded:', !!canUseTurn,
-        '| policy:', forceTurn ? 'relay' : 'all')
-
-    return cfg
 }
 
 function logError (scope, err) {
