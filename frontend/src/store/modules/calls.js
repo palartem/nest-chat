@@ -17,13 +17,32 @@ async function getMediaWithFallback () {
 }
 
 function rtcConfig () {
-    return {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+    const urls = (import.meta.env.VITE_TURN_URLS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+
+    const username = import.meta.env.VITE_TURN_USERNAME
+    const credential = import.meta.env.VITE_TURN_CREDENTIAL
+
+    const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+
+    if (urls.length && username && credential) {
+        iceServers.push({ urls, username, credential })
     }
+
+    return { iceServers }
 }
+
+const pc = new RTCPeerConnection({
+    ...rtcConfig(),
+    ...(import.meta.env.VITE_FORCE_TURN ? { iceTransportPolicy: 'relay' } : {})
+})
+pc.oniceconnectionstatechange = () => console.log('ICE:', pc.iceConnectionState)
+pc.onicecandidateerror = (e) => console.warn('ICE error:', e)
 
 function logError (scope, err) {
     console.error(`[${scope}]`, err?.name || err, err?.message || '')
