@@ -1,13 +1,8 @@
 async function getMediaWithFallback () {
     const primary = {
-        video: {
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        },
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true
     }
-
     try {
         return await navigator.mediaDevices.getUserMedia(primary)
     } catch (err) {
@@ -16,36 +11,88 @@ async function getMediaWithFallback () {
     }
 }
 
-function rtcConfig () {
-    const urls = (import.meta.env.VITE_TURN_URLS || '')
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean)
+function isLocalNetworkHost (host) {
+    if (!host) return false
+    if (host === 'localhost') return true
+    if (host.startsWith('127.')) return true
+    const m = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+    if (!m) return false
+    const a = m.slice(1).map(n => parseInt(n, 10))
+    if (a[0] === 10) return true
+    if (a[0] === 172 && a[1] >= 16 && a[1] <= 31) return true
+    if (a[0] === 192 && a[1] === 168) return true
+    return false
+}
 
+function rtcConfig () {
+    const urls = (import.meta.env.VITE_TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean)
     const username = import.meta.env.VITE_TURN_USERNAME
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
+
+    const forceTurn = String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
+    const disableTurnInLocal = String(import.meta.env.VITE_DISABLE_TURN_LOCAL || '1') === '1'
+
+    const host = window.location.hostname
+    const isLocal = isLocalNetworkHost(host)
 
     const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
 
-    if (urls.length && username && credential) {
-        iceServers.push({ urls, username, credential })
-    }
+    const canUseTurn =
+        urls.length && username && credential &&
+        (!isLocal || (isLocal && !disableTurnInLocal) || forceTurn)
 
-    return { iceServers }
+    if (canUseTurn) iceServers.push({ urls, username, credential })
+
+    const cfg = { iceServers, ...(forceTurn ? { iceTransportPolicy: 'relay' } : {}) }
+
+    console.log('[RTC] host:', host,
+        '| local:', isLocal,
+        '| forceTurn:', forceTurn,
+        '| turnAdded:', canUseTurn,
+        '| policy:', forceTurn ? 'relay' : 'all')
+
+    return cfg
 }
-
-const pc = new RTCPeerConnection({
-    ...rtcConfig(),
-    ...(import.meta.env.VITE_FORCE_TURN ? { iceTransportPolicy: 'relay' } : {})
-})
-pc.oniceconnectionstatechange = () => console.log('ICE:', pc.iceConnectionState)
-pc.onicecandidateerror = (e) => console.warn('ICE error:', e)
 
 function logError (scope, err) {
     console.error(`[${scope}]`, err?.name || err, err?.message || '')
+}
+
+function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit }) {
+    const remoteStream = new MediaStream()
+
+    peerConnection.ontrack = (event) => {
+        console.log('[CALL] Remote track received:', event.streams, event.track)
+        event.streams[0]?.getTracks().forEach(track => {
+            console.log('[CALL] Adding remote track:', track.kind, track.id)
+            remoteStream.addTrack(track)
+        })
+        commit('SET_REMOTE_STREAM', remoteStream)
+    }
+
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+            console.log('[CALL] Local ICE candidate:', event.candidate.candidate)
+            socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
+        } else {
+            console.log('[CALL] All local ICE candidates sent')
+        }
+    }
+
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log('[CALL] ICE state:', peerConnection.iceConnectionState)
+    }
+    peerConnection.onconnectionstatechange = () => {
+        console.log('[CALL] Conn state:', peerConnection.connectionState)
+    }
+    peerConnection.onicecandidateerror = (e) => {
+        console.warn('[CALL] ICE candidate error:', e)
+    }
+
+    return peerConnection
 }
 
 export default {
@@ -70,39 +117,25 @@ export default {
     },
 
     mutations: {
-        SET_CALL_STATE (state, payload) {
-            Object.assign(state, payload)
-        },
-        SET_LOCAL_STREAM (state, stream) {
-            state.localStream = stream
-        },
-        SET_REMOTE_STREAM (state, stream) {
-            state.remoteStream = stream
-        },
-        SET_INCOMING (state, payload) {
-            state.incoming = payload
-        }
+        SET_CALL_STATE (state, payload) { Object.assign(state, payload) },
+        SET_LOCAL_STREAM (state, stream) { state.localStream = stream },
+        SET_REMOTE_STREAM (state, stream) { state.remoteStream = stream },
+        SET_INCOMING (state, payload) { state.incoming = payload }
     },
 
     actions: {
-        // прилетел инвайт
         incomingInvite ({ commit }, { fromUserId, chatId, sdp }) {
             commit('SET_INCOMING', { fromUserId, chatId, sdp })
         },
 
-        // пользователь нажал "Отклонить"
         declineIncoming ({ commit, rootState, state }) {
             const socket = rootState.chat.socket
             if (socket && state.incoming?.fromUserId && state.incoming?.chatId) {
-                socket.emit('callEnd', {
-                    toUserId: state.incoming.fromUserId,
-                    chatId: state.incoming.chatId
-                })
+                socket.emit('callEnd', { toUserId: state.incoming.fromUserId, chatId: state.incoming.chatId })
             }
             commit('SET_INCOMING', null)
         },
 
-        // пользователь нажал "Принять"
         async acceptIncoming ({ commit, dispatch }, { fromUserId, chatId, sdp }) {
             commit('SET_INCOMING', null)
             await dispatch('receiveCall', { fromUserId, chatId, sdp })
@@ -112,22 +145,9 @@ export default {
             const socket = rootState.chat.socket
             if (!socket) return
 
-            // читска вызова
-            try {
-                state.localStream?.getTracks().forEach(t => t.stop())
-            } catch (err) {
-                console.log(err);
-            }
-            try {
-                state.remoteStream?.getTracks().forEach(t => t.stop())
-            } catch (err) {
-                console.log(err);
-            }
-            try {
-                state.peerConnection?.close()
-            } catch (err) {
-                console.log(err);
-            }
+            try { state.localStream?.getTracks().forEach(t => t.stop()) } catch (err) { console.warn('stop localStream error', err) }
+            try { state.remoteStream?.getTracks().forEach(t => t.stop()) } catch (err) { console.warn('stop remoteStream error', err) }
+            try { state.peerConnection?.close() } catch (err) { console.warn('close peerConnection error', err) }
 
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId, isCaller: true,
@@ -138,21 +158,12 @@ export default {
                 const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
 
-                const peerConnection = new RTCPeerConnection(rtcConfig())
+                const peerConnection = attachPcHandlers(
+                    new RTCPeerConnection(rtcConfig()),
+                    { socket, toUserId, chatId, commit }
+                )
+
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream))
-
-                const remoteStream = new MediaStream()
-                peerConnection.ontrack = (event) => {
-                    event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track))
-                    commit('SET_REMOTE_STREAM', remoteStream)
-                }
-
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
-                    }
-                }
-
                 commit('SET_CALL_STATE', { peerConnection })
 
                 const offer = await peerConnection.createOffer()
@@ -160,33 +171,18 @@ export default {
 
                 socket.emit('callInvite', { toUserId, chatId, sdp: offer })
             } catch (err) {
-                // камера занята / блокировка разрешений / и пр.
                 logError('startCall', err)
                 this.dispatch('calls/endCallSilent', null, { root: true })
             }
         },
 
-        // принять звонок (используется из acceptIncoming)
         async receiveCall ({ commit, rootState, state }, { fromUserId, chatId, sdp }) {
             const socket = rootState.chat.socket
             if (!socket) return
 
-            // почистим предыдущие
-            try {
-                state.localStream?.getTracks().forEach(t => t.stop())
-            } catch (err) {
-                console.log(err);
-            }
-            try {
-                state.remoteStream?.getTracks().forEach(t => t.stop())
-            } catch (err) {
-                console.log(err);
-            }
-            try {
-                state.peerConnection?.close()
-            } catch (err) {
-                console.log(err);
-            }
+            try { state.localStream?.getTracks().forEach(t => t.stop()) } catch (err) { console.warn('stop localStream error', err) }
+            try { state.remoteStream?.getTracks().forEach(t => t.stop()) } catch (err) { console.warn('stop remoteStream error', err) }
+            try { state.peerConnection?.close() } catch (err) { console.warn('close peerConnection error', err) }
 
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId: fromUserId, isCaller: false,
@@ -197,21 +193,12 @@ export default {
                 const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
 
-                const peerConnection = new RTCPeerConnection(rtcConfig())
+                const peerConnection = attachPcHandlers(
+                    new RTCPeerConnection(rtcConfig()),
+                    { socket, toUserId: fromUserId, chatId, commit }
+                )
+
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream))
-
-                const remoteStream = new MediaStream()
-                peerConnection.ontrack = (event) => {
-                    event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track))
-                    commit('SET_REMOTE_STREAM', remoteStream)
-                }
-
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        socket.emit('callIce', { toUserId: fromUserId, chatId, candidate: event.candidate })
-                    }
-                }
-
                 commit('SET_CALL_STATE', { peerConnection })
 
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
@@ -227,7 +214,6 @@ export default {
 
         async handleCallAnswer ({ state }, { sdp }) {
             try {
-                // устанавливаем answer только если у нас есть peerConnection и мы в состоянии ожидания ответа
                 if (!state.peerConnection) return
                 await state.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
             } catch (err) {
@@ -238,6 +224,7 @@ export default {
         async handleIceCandidate ({ state }, { candidate }) {
             try {
                 if (state.peerConnection && candidate) {
+                    console.log('[CALL] Remote ICE candidate received:', candidate?.candidate)
                     await state.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
                 }
             } catch (err) {
@@ -251,13 +238,9 @@ export default {
                 socket.emit('callEnd', { toUserId: state.toUserId, chatId: state.chatId })
             }
 
-            try {
-                state.localStream?.getTracks().forEach(track => track.stop())
-                state.remoteStream?.getTracks().forEach(track => track.stop())
-                state.peerConnection?.close()
-            } catch (err) {
-                logError('endCall', err)
-            }
+            try { state.localStream?.getTracks().forEach(track => track.stop()) } catch (err) { console.warn('stop localStream error', err) }
+            try { state.remoteStream?.getTracks().forEach(track => track.stop()) } catch (err) { console.warn('stop remoteStream error', err) }
+            try { state.peerConnection?.close() } catch (err) { console.warn('close peerConnection error', err) }
 
             commit('SET_CALL_STATE', {
                 active: false,
@@ -271,13 +254,9 @@ export default {
         },
 
         endCallSilent ({ commit, state }) {
-            try {
-                state.localStream?.getTracks().forEach(track => track.stop())
-                state.remoteStream?.getTracks().forEach(track => track.stop())
-                state.peerConnection?.close()
-            } catch (err) {
-                logError('endCallSilent', err)
-            }
+            try { state.localStream?.getTracks().forEach(track => track.stop()) } catch (err) { console.warn('stop localStream error', err) }
+            try { state.remoteStream?.getTracks().forEach(track => track.stop()) } catch (err) { console.warn('stop remoteStream error', err) }
+            try { state.peerConnection?.close() } catch (err) { console.warn('close peerConnection error', err) }
 
             commit('SET_CALL_STATE', {
                 active: false,
