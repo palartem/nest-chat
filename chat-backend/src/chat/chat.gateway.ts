@@ -20,7 +20,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
 
-    /** userId -> set of socketIds */
     private onlineUsers = new Map<number, Set<string>>();
 
     constructor(
@@ -39,17 +38,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             const userId = Number(jwtPayload.sub);
             clientSocket.data.userId = userId;
 
-            // персональная комната пользователя
             clientSocket.join(`user-${userId}`);
 
-            // учёт онлайна
             if (!this.onlineUsers.has(userId)) {
                 this.onlineUsers.set(userId, new Set());
                 this.server.emit('userOnline', { userId });
             }
             this.onlineUsers.get(userId)!.add(clientSocket.id);
 
-            // отдать подключившемуся список онлайнов
             const currentOnlineIds = Array.from(this.onlineUsers.keys());
             clientSocket.emit('onlineUsers', { userIds: currentOnlineIds });
 
@@ -80,18 +76,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         @ConnectedSocket() clientSocket: Socket
     ) {
         const userId = clientSocket.data.userId;
-        if (!userId) {
-            console.warn('joinChat: no userId on socket');
-            return;
-        }
+        if (!userId) return;
 
         const chatIdNumber = Number(body?.chatId);
-        if (!chatIdNumber) {
-            console.warn('joinChat: invalid payload', body);
-            return;
-        }
+        if (!chatIdNumber) return;
 
-        // выходим из предыдущих комнат чатов
         for (const roomName of clientSocket.rooms) {
             if (roomName.startsWith('chat-')) clientSocket.leave(roomName);
         }
@@ -112,30 +101,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const chatIdNumber = Number(body.chatId);
         const content = body.message;
 
-        // валидация участников/чата
         const senderUser = await this.userService.findById(senderId);
         const recipientUser = await this.userService.findById(recipientId);
         const chatEntity = await this.chatService.findByIdWithParticipants(chatIdNumber);
 
-        if (!senderUser || !recipientUser || !chatEntity) {
-            console.warn('⚠ Invalid message payload:', body);
-            return;
-        }
+        if (!senderUser || !recipientUser || !chatEntity) return;
 
         const isParticipant = chatEntity.participants.some(p => p.id === senderUser.id);
-        if (!isParticipant) {
-            console.warn(`⚠ User ${senderUser.id} is not a participant of chat ${chatIdNumber}`);
-            return;
-        }
+        if (!isParticipant) return;
 
-        // создаём сообщение
         const savedMessage = await this.messageService.createMessage(
             senderUser,
             chatEntity,
             content,
         );
 
-        const messageEventPayload = {
+        const payload = {
             id: savedMessage.id,
             chatId: chatIdNumber,
             content,
@@ -149,16 +130,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             },
         };
 
-        // всем, кто уже в комнате чата
         const chatRoomName = `chat-${chatIdNumber}`;
-        this.server.to(chatRoomName).emit('receiveMessage', messageEventPayload);
+        this.server.to(chatRoomName).emit('receiveMessage', payload);
 
-        // персонально обоим участникам (если они не в комнате)
         for (const participant of chatEntity.participants) {
-            this.server.to(`user-${participant.id}`).emit('receiveMessage', messageEventPayload);
+            this.server.to(`user-${participant.id}`).emit('receiveMessage', payload);
         }
 
-        // обновление lastMessage для сайдбара обоих участников
         for (const participant of chatEntity.participants) {
             this.server.to(`user-${participant.id}`).emit('chatLastMessage', {
                 chatId: chatIdNumber,
@@ -173,8 +151,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
     }
 
-    // ===== WebRTC сигналинг =====
-
     @SubscribeMessage('callInvite')
     async handleCallInvite(
         @MessageBody() body: { toUserId: number; chatId: number; sdp: any },
@@ -184,13 +160,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const toUserId = Number(body.toUserId);
         const chatId = Number(body.chatId);
 
-        // (по желанию) убедимся, что оба состоят в чате
-        const chat = await this.chatService.findByIdWithParticipants(chatId);
-        if (!chat || !chat.participants.some(u => u.id === fromUserId) || !chat.participants.some(u => u.id === toUserId)) {
-            return;
-        }
-
-        // Покидаем оффер в персональную комнату адресата
         this.server.to(`user-${toUserId}`).emit('callInvite', {
             fromUserId,
             chatId,
@@ -208,6 +177,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const chatId = Number(body.chatId);
 
         this.server.to(`user-${toUserId}`).emit('callAnswer', {
+            fromUserId,
+            chatId,
+            sdp: body.sdp,
+        });
+    }
+
+    @SubscribeMessage('callRenegotiate')
+    async handleCallRenegotiate(
+        @MessageBody() body: { toUserId: number; chatId: number; sdp: any },
+        @ConnectedSocket() client: Socket,
+    ) {
+        const fromUserId = Number(client.data.userId);
+        const toUserId = Number(body.toUserId);
+        const chatId = Number(body.chatId);
+
+        this.server.to(`user-${toUserId}`).emit('callRenegotiate', {
+            fromUserId,
+            chatId,
+            sdp: body.sdp,
+        });
+    }
+
+    @SubscribeMessage('callRenegotiateAnswer')
+    async handleCallRenegotiateAnswer(
+        @MessageBody() body: { toUserId: number; chatId: number; sdp: any },
+        @ConnectedSocket() client: Socket,
+    ) {
+        const fromUserId = Number(client.data.userId);
+        const toUserId = Number(body.toUserId);
+        const chatId = Number(body.chatId);
+
+        this.server.to(`user-${toUserId}`).emit('callRenegotiateAnswer', {
             fromUserId,
             chatId,
             sdp: body.sdp,

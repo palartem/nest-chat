@@ -1,4 +1,4 @@
-console.log('[CALLS BUILD] v-tcp-only-04')
+console.log('[CALLS BUILD] v-tcp-only-05')
 
 function isLocalNetworkHost (host) {
     if (!host) return false
@@ -36,7 +36,11 @@ function rtcConfig () {
 
     if (isForceTurn()) {
         const tcpOnly = urls.filter(u => /transport=tcp/i.test(u) || /^turns:/i.test(u))
-        const iceServers = tcpOnly.map(u => ({ urls: u, username, credential }))
+        const ordered = [
+            ...tcpOnly.filter(u => /^turns:/i.test(u)),
+            ...tcpOnly.filter(u => !/^turns:/i.test(u))
+        ]
+        const iceServers = ordered.map(u => ({ urls: u, username, credential }))
         return { iceServers, iceTransportPolicy: 'relay' }
     }
 
@@ -55,6 +59,25 @@ function logError (scope, err) {
 }
 
 function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
+    let restartTimer = null
+    let restartInFlight = false
+
+    const tryIceRestart = async () => {
+        if (restartInFlight) return
+        if (!pc) return
+        restartInFlight = true
+        try {
+            const offer = await pc.createOffer({ iceRestart: true })
+            await pc.setLocalDescription(offer)
+            socket.emit('callRenegotiate', { toUserId, chatId, sdp: offer })
+            console.log('[CALL] ICE restart sent')
+        } catch (e) {
+            warn('iceRestart', e)
+        } finally {
+            restartInFlight = false
+        }
+    }
+
     pc.ontrack = (e) => {
         const stream = e.streams?.[0]
         if (stream) {
@@ -62,18 +85,39 @@ function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
             commit('SET_REMOTE_STREAM', stream)
         }
     }
+
     pc.onicecandidate = (event) => {
         if (!event.candidate) { console.log('[CALL] All local ICE candidates sent'); return }
         const s = event.candidate.candidate || ''
         console.log('[CALL] Local ICE candidate:', s)
         socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
     }
+
     pc.onicegatheringstatechange = () => { console.log('[CALL] ICE gathering state:', pc.iceGatheringState) }
-    pc.oniceconnectionstatechange = () => { console.log('[CALL] ICE state:', pc.iceConnectionState) }
+
+    pc.oniceconnectionstatechange = () => {
+        const st = pc.iceConnectionState
+        console.log('[CALL] ICE state:', st)
+        if (st === 'failed' || st === 'disconnected') {
+            clearTimeout(restartTimer)
+            restartTimer = setTimeout(() => {
+                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') tryIceRestart()
+            }, 1500)
+        } else if (st === 'connected' || st === 'completed') {
+            clearTimeout(restartTimer)
+        }
+    }
+
     pc.onconnectionstatechange = () => { console.log('[CALL] Conn state:', pc.connectionState) }
+
     pc.onicecandidateerror = (e) => {
         console.warn('[CALL] ICE candidate error:', { url: e.url, hostCandidate: e.hostCandidate, errorCode: e.errorCode, errorText: e.errorText })
     }
+
+    pc.onnegotiationneeded = () => {
+        if (restartInFlight) return
+    }
+
     return pc
 }
 
@@ -201,6 +245,30 @@ export default {
                 await state.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
             } catch (err) {
                 logError('handleIceCandidate', err)
+            }
+        },
+
+        async handleRenegotiate ({ state, rootState }, { fromUserId, chatId, sdp }) {
+            try {
+                const pc = state.peerConnection
+                if (!pc) return
+                const socket = rootState.chat.socket
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp))
+                const answer = await pc.createAnswer()
+                await pc.setLocalDescription(answer)
+                socket.emit('callRenegotiateAnswer', { toUserId: fromUserId, chatId, sdp: answer })
+            } catch (err) {
+                logError('handleRenegotiate', err)
+            }
+        },
+
+        async handleRenegotiateAnswer ({ state }, { sdp }) {
+            try {
+                const pc = state.peerConnection
+                if (!pc) return
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp))
+            } catch (err) {
+                logError('handleRenegotiateAnswer', err)
             }
         },
 

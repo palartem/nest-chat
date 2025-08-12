@@ -162,22 +162,24 @@ const actions = {
             })
         })
 
-        // ====== видеозвонки: сигналинг ======
         socketInstance.on('callInvite', ({ fromUserId, chatId, sdp }) => {
-            // показать входящий вызов (модалка), решение примет пользователь
             this.dispatch('calls/incomingInvite', { fromUserId, chatId, sdp }, { root: true })
         })
-
         socketInstance.on('callAnswer', ({ sdp }) => {
             this.dispatch('calls/handleCallAnswer', { sdp }, { root: true })
         })
-
         socketInstance.on('callIce', ({ candidate }) => {
             this.dispatch('calls/handleIceCandidate', { candidate }, { root: true })
         })
-
         socketInstance.on('callEnd', () => {
             this.dispatch('calls/endCallSilent', null, { root: true })
+        })
+
+        socketInstance.on('callRenegotiate', ({ fromUserId, chatId, sdp }) => {
+            this.dispatch('calls/handleRenegotiate', { fromUserId, chatId, sdp }, { root: true })
+        })
+        socketInstance.on('callRenegotiateAnswer', ({ sdp }) => {
+            this.dispatch('calls/handleRenegotiateAnswer', { sdp }, { root: true })
         })
 
         const { markRaw } = await import('vue')
