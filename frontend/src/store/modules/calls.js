@@ -1,3 +1,5 @@
+console.log('[CALLS BUILD] v-tcp-only-03')
+
 function isLocalNetworkHost (host) {
     if (!host) return false
     if (host === 'localhost') return true
@@ -12,6 +14,7 @@ function isLocalNetworkHost (host) {
 }
 
 const isForceTurn = () => String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
+const isUdpRelay = s => /\btyp\s+relay\b/i.test(s || '') && /\budp\b/i.test(s || '')
 
 function warn (scope, err) {
     console.warn(`[CALL] ${scope}:`, err?.name || err, err?.message || err)
@@ -33,15 +36,17 @@ function rtcConfig () {
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
     const disableTurnLocal = String(import.meta.env.VITE_DISABLE_TURN_LOCAL || '') === '1'
     const isLocal = isLocalNetworkHost(window.location.hostname)
+    if (isForceTurn()) {
+        const tcpOnly = urls.filter(u => /transport=tcp/i.test(u) || /^turns:/i.test(u))
+        const iceServers = tcpOnly.map(u => ({ urls: u, username, credential }))
+        return { iceServers, iceTransportPolicy: 'relay' }
+    }
     const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
     if (!(disableTurnLocal && isLocal) && urls.length && username && credential) {
-        const useUrls = isForceTurn()
-            ? urls.filter(u => /transport=tcp/i.test(u) || /^turns:/i.test(u))
-            : urls
-        useUrls.forEach(u => iceServers.push({ urls: u, username, credential }))
+        urls.forEach(u => iceServers.push({ urls: u, username, credential }))
     }
     return { iceServers }
 }
@@ -59,11 +64,10 @@ function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
         }
     }
     pc.onicecandidate = (event) => {
-        if (!event.candidate) {
-            console.log('[CALL] All local ICE candidates sent')
-            return
-        }
-        console.log('[CALL] Local ICE candidate:', event.candidate?.candidate || '')
+        if (!event.candidate) { console.log('[CALL] All local ICE candidates sent'); return }
+        const s = event.candidate.candidate || ''
+        if (isForceTurn() && isUdpRelay(s)) { console.warn('[CALL] DROP LOCAL UDP relay:', s); return }
+        console.log('[CALL] Local ICE candidate:', s)
         socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
     }
     pc.onicegatheringstatechange = () => { console.log('[CALL] ICE gathering state:', pc.iceGatheringState) }
@@ -133,33 +137,22 @@ export default {
         async startCall ({ commit, rootState, state }, { chatId, toUserId }) {
             const socket = rootState.chat.socket
             if (!socket) return
-
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId, isCaller: true,
                 peerConnection: null, localStream: null, remoteStream: null
             })
-
             try {
                 const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
-
-                const baseCfg = rtcConfig()
-                const pc = new RTCPeerConnection({
-                    ...baseCfg,
-                    ...(isForceTurn() ? { iceTransportPolicy: 'relay' } : {})
-                })
-
+                const pc = new RTCPeerConnection(rtcConfig())
                 localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream))
                 attachPcHandlers(pc, { socket, toUserId, chatId, commit })
                 commit('SET_CALL_STATE', { peerConnection: pc })
-
                 const offer = await pc.createOffer()
                 await pc.setLocalDescription(offer)
-
                 socket.emit('callInvite', { toUserId, chatId, sdp: offer })
             } catch (err) {
                 logError('startCall', err)
@@ -170,34 +163,23 @@ export default {
         async receiveCall ({ commit, rootState, state }, { fromUserId, chatId, sdp }) {
             const socket = rootState.chat.socket
             if (!socket) return
-
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId: fromUserId, isCaller: false,
                 peerConnection: null, localStream: null, remoteStream: null
             })
-
             try {
                 const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
-
-                const baseCfg = rtcConfig()
-                const pc = new RTCPeerConnection({
-                    ...baseCfg,
-                    ...(isForceTurn() ? { iceTransportPolicy: 'relay' } : {})
-                })
-
+                const pc = new RTCPeerConnection(rtcConfig())
                 localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream))
                 attachPcHandlers(pc, { socket, toUserId: fromUserId, chatId, commit })
                 commit('SET_CALL_STATE', { peerConnection: pc })
-
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp))
                 const answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
-
                 socket.emit('callAnswer', { toUserId: fromUserId, chatId, sdp: answer })
             } catch (err) {
                 logError('receiveCall', err)
@@ -217,7 +199,9 @@ export default {
         async handleIceCandidate ({ state }, { candidate }) {
             try {
                 if (!state.peerConnection || !candidate) return
-                console.log('[CALL] Remote ICE candidate received:', candidate?.candidate || '')
+                const s = candidate?.candidate || ''
+                if (isForceTurn() && isUdpRelay(s)) { console.warn('[CALL] DROP REMOTE UDP relay:', s); return }
+                console.log('[CALL] Remote ICE candidate received:', s)
                 await state.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
             } catch (err) {
                 logError('handleIceCandidate', err)
@@ -229,11 +213,9 @@ export default {
             if (socket && state.toUserId && state.chatId) {
                 socket.emit('callEnd', { toUserId: state.toUserId, chatId: state.chatId })
             }
-
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: false,
                 chatId: null,
@@ -249,7 +231,6 @@ export default {
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: false,
                 chatId: null,
