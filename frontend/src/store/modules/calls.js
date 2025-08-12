@@ -38,7 +38,10 @@ function rtcConfig () {
         { urls: 'stun:stun1.l.google.com:19302' }
     ]
     if (!(disableTurnLocal && isLocal) && urls.length && username && credential) {
-        urls.forEach(u => iceServers.push({ urls: u, username, credential }))
+        const useUrls = isForceTurn()
+            ? urls.filter(u => /transport=tcp/i.test(u) || /^turns:/i.test(u))
+            : urls
+        useUrls.forEach(u => iceServers.push({ urls: u, username, credential }))
     }
     return { iceServers }
 }
@@ -73,13 +76,9 @@ function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
 }
 
 async function getMediaWithFallback () {
-    const primary = {
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true
-    }
-    try {
-        return await navigator.mediaDevices.getUserMedia(primary)
-    } catch (err) {
+    const primary = { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true }
+    try { return await navigator.mediaDevices.getUserMedia(primary) }
+    catch (err) {
         console.warn('[getUserMedia] primary failed:', err?.name, err?.message)
         return await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     }
