@@ -13,8 +13,8 @@ function normalizeMessage(message) {
         sender: {
             id: Number(message?.sender?.id ?? message?.from),
             name: message?.sender?.name ?? null,
-            email: message?.sender?.email ?? null,
-        },
+            email: message?.sender?.email ?? null
+        }
     }
 }
 
@@ -23,7 +23,7 @@ const state = () => ({
     chats: [],
     messages: [],
     onlineUsers: {},
-    currentChatId: null,
+    currentChatId: null
 })
 
 const getters = {
@@ -31,7 +31,7 @@ const getters = {
     messages: (state) => state.messages,
     onlineUsers: (state) => state.onlineUsers,
     currentChatId: (state) => state.currentChatId,
-    isOnline: (state) => (userId) => !!state.onlineUsers[Number(userId)],
+    isOnline: (state) => (userId) => !!state.onlineUsers[Number(userId)]
 }
 
 const mutations = {
@@ -102,13 +102,13 @@ const mutations = {
             id: normalizedMessage.id,
             content: normalizedMessage.content,
             createdAt: normalizedMessage.createdAt,
-            sender: normalizedMessage.sender,
+            sender: normalizedMessage.sender
         }
         const updatedChats = state.chats.slice()
         updatedChats.splice(chatIndex, 1)
         updatedChats.unshift(chat)
         state.chats = updatedChats
-    },
+    }
 }
 
 const actions = {
@@ -158,26 +158,27 @@ const actions = {
                 id: lastMessage.id,
                 content: lastMessage.content,
                 createdAt: lastMessageAt,
-                sender: { id: Number(lastMessage.senderId) },
+                sender: { id: Number(lastMessage.senderId) }
             })
         })
 
+        // ====== видеозвонки: сигналинг ======
         socketInstance.on('callInvite', ({ fromUserId, chatId, sdp }) => {
-            // Принимающая сторона — открываем медиапотоки и отправляем answer
-            this.dispatch('calls/receiveCall', { fromUserId, chatId, sdp }, { root: true });
-        });
+            // показать входящий вызов (модалка), решение примет пользователь
+            this.dispatch('calls/incomingInvite', { fromUserId, chatId, sdp }, { root: true })
+        })
 
         socketInstance.on('callAnswer', ({ sdp }) => {
-            this.dispatch('calls/handleCallAnswer', { sdp }, { root: true });
-        });
+            this.dispatch('calls/handleCallAnswer', { sdp }, { root: true })
+        })
 
         socketInstance.on('callIce', ({ candidate }) => {
-            this.dispatch('calls/handleIceCandidate', { candidate }, { root: true });
-        });
+            this.dispatch('calls/handleIceCandidate', { candidate }, { root: true })
+        })
 
         socketInstance.on('callEnd', () => {
-            this.dispatch('calls/endCallSilent', null, { root: true });
-        });
+            this.dispatch('calls/endCallSilent', null, { root: true })
+        })
 
         const { markRaw } = await import('vue')
         commit('SET_SOCKET', markRaw(socketInstance))
@@ -187,7 +188,7 @@ const actions = {
         const { data } = await apolloClient.query({
             query: GET_CHATS,
             variables: { userId: Number(rootState.auth.user.id) },
-            fetchPolicy: 'no-cache',
+            fetchPolicy: 'no-cache'
         })
         commit('SET_CHATS', data?.chats)
     },
@@ -196,7 +197,7 @@ const actions = {
         const { data } = await apolloClient.query({
             query: GET_MESSAGES,
             variables: { chatId: Number(chatId) },
-            fetchPolicy: 'no-cache',
+            fetchPolicy: 'no-cache'
         })
         commit('SET_MESSAGES', { chatId, messages: data.messagesForChat })
     },
@@ -204,7 +205,7 @@ const actions = {
     async getOrCreateChat({ dispatch, state }, { userAId, userBId }) {
         const result = await apolloClient.mutate({
             mutation: GET_OR_CREATE_CHAT,
-            variables: { userAId: Number(userAId), userBId: Number(userBId) },
+            variables: { userAId: Number(userAId), userBId: Number(userBId) }
         })
         const chat = result?.data?.getOrCreateChat
         if (!chat) throw new Error('getOrCreateChat вернул пустой результат')
@@ -238,9 +239,9 @@ const actions = {
         state.socket.emit('sendMessage', {
             chatId: Number(chat.id),
             to: Number(recipient.id),
-            message: content,
+            message: content
         })
-    },
+    }
 }
 
 export default {
@@ -248,5 +249,5 @@ export default {
     state,
     getters,
     mutations,
-    actions,
+    actions
 }

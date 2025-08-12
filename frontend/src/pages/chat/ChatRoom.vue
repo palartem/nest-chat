@@ -46,7 +46,7 @@
                 style="background:#000; border-radius:8px; max-height:220px"
             ></video>
         </div>
-
+        <CallDialog />
         <ChatMessages class="col overflow-auto q-px-md" />
         <ChatInput class="col-auto q-pa-md" @send="sendMessage" />
     </q-page>
@@ -56,11 +56,12 @@
 import ChatMessages from 'src/components/chat/ChatMessages.vue'
 import ChatInput from 'src/components/chat/ChatInput.vue'
 import UserAvatar from 'src/components/user/UserAvatar.vue'
+import CallDialog from 'src/components/calls/CallDialog.vue'
 import { mapGetters } from 'vuex'
 
 export default {
     name: 'ChatRoom',
-    components: { ChatMessages, ChatInput, UserAvatar },
+    components: { ChatMessages, ChatInput, UserAvatar, CallDialog },
 
     computed: {
         ...mapGetters('chat', ['messages', 'chats', 'isOnline']),
