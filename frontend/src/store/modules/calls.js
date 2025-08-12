@@ -24,30 +24,49 @@ function isLocalNetworkHost (host) {
     return false
 }
 
+const isForceTurn = () => String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
+const dropUdpRelay = (candStr) =>
+    /\btyp\s+relay\b/i.test(candStr || '') && /\budp\b/i.test(candStr || '')
+
 function rtcConfig () {
     const urls = (import.meta.env.VITE_TURN_URLS || '')
         .split(',').map(s => s.trim()).filter(Boolean)
     const username = import.meta.env.VITE_TURN_USERNAME
     const credential = import.meta.env.VITE_TURN_CREDENTIAL
-    const forceTurn = String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
 
-    if (forceTurn) {
-        const turnTcp = urls.filter(u => /turns:.*5349\?transport=tcp/i.test(u))
+    // === Режим принудительного TURN: только TCP/TLS, без STUN
+    if (isForceTurn()) {
+        const tcp = urls.filter(u => /transport=tcp/i.test(u))
+        const tls5349 = tcp.filter(u => /^turns:/i.test(u) && /:5349\b/i.test(u))
+        const turnTcp = tls5349.length ? tls5349 : tcp
+
+        if (!turnTcp.length) {
+            console.error('[RTC] FORCE_TURN=1, но нет ни одного TURN c transport=tcp в VITE_TURN_URLS')
+        }
         console.log('[RTC] force TURN TCP only:', turnTcp)
+
         return {
             iceServers: turnTcp.length ? [{ urls: turnTcp, username, credential }] : [],
             iceTransportPolicy: 'relay'
         }
     }
 
-    // обычный режим
-    return {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            ...(urls && username && credential ? [{ urls, username, credential }] : [])
-        ]
+    // === Обычный режим: P2P (STUN), TURN как запасной
+    const host = window.location.hostname
+    const isLocal = isLocalNetworkHost(host)
+
+    const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+
+    if (urls.length && username && credential) {
+        iceServers.push({ urls, username, credential })
     }
+
+    const cfg = { iceServers }
+    console.log('[RTC] host:', host, '| local:', isLocal, '| policy: all')
+    return cfg
 }
 
 function logError (scope, err) {
@@ -56,23 +75,28 @@ function logError (scope, err) {
 
 function attachPcHandlers (peerConnection, { socket, toUserId, chatId, commit }) {
     const remoteStream = new MediaStream()
+    const force = isForceTurn()
 
     peerConnection.ontrack = (event) => {
         console.log('[CALL] Remote track:', event.track?.kind, event.track?.id)
         const already = remoteStream.getTracks().some(t => t.id === event.track?.id)
-        if (!already && event.track) {
-            remoteStream.addTrack(event.track)
-        }
+        if (!already && event.track) remoteStream.addTrack(event.track)
         commit('SET_REMOTE_STREAM', remoteStream)
     }
 
     peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            console.log('[CALL] Local ICE candidate:', event.candidate.candidate)
-            socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
-        } else {
+        if (!event.candidate) {
             console.log('[CALL] All local ICE candidates sent')
+            return
         }
+        const candStr = event.candidate.candidate || ''
+        // режем UDP relay-кандидатов при форсе TURN
+        if (force && dropUdpRelay(candStr)) {
+            console.warn('[CALL] Drop LOCAL UDP relay candidate (force TCP):', candStr)
+            return
+        }
+        console.log('[CALL] Local ICE candidate:', candStr)
+        socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
     }
 
     peerConnection.oniceconnectionstatechange = () => {
@@ -217,7 +241,12 @@ export default {
         async handleIceCandidate ({ state }, { candidate }) {
             try {
                 if (state.peerConnection && candidate) {
-                    console.log('[CALL] Remote ICE candidate received:', candidate?.candidate)
+                    const candStr = candidate?.candidate || ''
+                    if (isForceTurn() && dropUdpRelay(candStr)) {
+                        console.warn('[CALL] Drop REMOTE UDP relay candidate (force TCP):', candStr)
+                        return
+                    }
+                    console.log('[CALL] Remote ICE candidate received:', candStr)
                     await state.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
                 }
             } catch (err) {
