@@ -30,23 +30,44 @@
                 </q-btn>
             </div>
         </div>
+
         <div v-if="callActive" class="container-video q-pa-md">
-            <video
-                ref="localVideoRef"
-                autoplay
-                playsinline
-                muted
-                class="container-video__item"
-                style="background:#000; border-radius:8px; max-height:220px"
-            ></video>
-            <video
-                ref="remoteVideoRef"
-                autoplay
-                playsinline
-                class="container-video__item"
-                style="background:#000; border-radius:8px; max-height:220px"
-            ></video>
+            <div class="container-video__item">
+                <video
+                    ref="localVideoRef"
+                    autoplay
+                    playsinline
+                    muted
+                    class=""
+                    style="background:#000; border-radius:8px; max-height:220px"
+                ></video>
+                <q-inner-loading :showing="showLocalLoading">
+                    <q-spinner
+                        color="primary"
+                        size="42px"
+                    />
+                    <div class="text-grey-5 q-mt-sm">Подключаем камеру…</div>
+                </q-inner-loading>
+            </div>
+
+            <div class="container-video__item">
+                <video
+                    ref="remoteVideoRef"
+                    autoplay
+                    playsinline
+                    class=""
+                    style="background:#000; border-radius:8px; max-height:220px"
+                ></video>
+                <q-inner-loading :showing="showRemoteLoading">
+                    <q-spinner
+                        color="primary"
+                        size="42px"
+                    />
+                    <div class="text-grey-5 q-mt-sm">Ждём собеседника…</div>
+                </q-inner-loading>
+            </div>
         </div>
+
         <CallDialog />
         <ChatMessages class="col overflow-auto q-px-md" />
         <ChatInput class="col-auto q-pa-md" @send="sendMessage" />
@@ -85,6 +106,14 @@ export default {
 
         chatPartnerName () {
             return this.chatPartner?.name || 'Собеседник'
+        },
+
+        showLocalLoading () {
+            return this.callActive && !this.localStream
+        },
+
+        showRemoteLoading () {
+            return this.callActive && !this.remoteStream
         }
     },
 
@@ -106,7 +135,6 @@ export default {
 
     async mounted () {
         await this.enterRoom(this.chatId)
-        // Привяжем уже имеющиеся стримы (если звонок активен)
         if (this.localStream && this.$refs.localVideoRef) this.$refs.localVideoRef.srcObject = this.localStream
         if (this.remoteStream && this.$refs.remoteVideoRef) this.$refs.remoteVideoRef.srcObject = this.remoteStream
     },
@@ -155,8 +183,14 @@ export default {
     display: flex;
     gap: 30px;
     justify-content: center;
+
     &__item {
         width: 30%;
+        position: relative;
+        video {
+            width: 100%;
+            height: 100%;
+        }
     }
 }
 .chat-room__header {
