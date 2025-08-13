@@ -1,21 +1,3 @@
-const DEBUG = String(import.meta.env.VITE_RTC_DEBUG || '').trim() === '1'
-const dbg = (...a) => { if (DEBUG) console.log(...a) }
-const wrn = (...a) => { if (DEBUG) console.warn(...a) }
-const err = (...a) => { if (DEBUG) console.error(...a) }
-
-const FAST_VIDEO = {
-    facingMode: 'user',
-    width: { ideal: 640 },
-    height: { ideal: 360 },
-    frameRate: { ideal: 15, max: 30 }
-}
-const HD_VIDEO = {
-    facingMode: 'user',
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30 }
-}
-
 function isLocalNetworkHost (host) {
     if (!host) return false
     if (host === 'localhost') return true
@@ -28,15 +10,23 @@ function isLocalNetworkHost (host) {
     if (a[0] === 192 && a[1] === 168) return true
     return false
 }
-const isForceTurn = () => String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
 
+const isForceTurn = () => String(import.meta.env.VITE_FORCE_TURN || '').trim() === '1'
+const isRtcDebug  = () => String(import.meta.env.VITE_RTC_DEBUG  || '').trim() === '1'
+
+function dlog (...args)  { if (isRtcDebug()) console.log(...args) }
+function dwarn (...args) { if (isRtcDebug()) console.warn(...args) }
+
+function warn (scope, err) {
+    dwarn(`[CALL] ${scope}:`, err?.name || err, err?.message || err)
+}
 function stopTracks (stream, label) {
     if (!stream) return
-    try { stream.getTracks().forEach(t => t.stop()) } catch (e) { wrn(`stop ${label}`, e) }
+    try { stream.getTracks().forEach(t => t.stop()) } catch (err) { warn(`stop ${label}`, err) }
 }
 function closePc (pc) {
     if (!pc) return
-    try { pc.close() } catch (e) { wrn('close peerConnection', e) }
+    try { pc.close() } catch (err) { warn('close peerConnection', err) }
 }
 
 function rtcConfig () {
@@ -53,12 +43,8 @@ function rtcConfig () {
             ...tcpOnly.filter(u => !/^turns:/i.test(u))
         ]
         const iceServers = ordered.map(u => ({ urls: u, username, credential }))
-        return {
-            iceServers,
-            iceTransportPolicy: 'relay',
-            bundlePolicy: 'max-bundle',
-            iceCandidatePoolSize: 1
-        }
+        dlog('[RTC] force TURN relay (TCP), servers:', iceServers.map(s => s.urls))
+        return { iceServers, iceTransportPolicy: 'relay' }
     }
 
     const iceServers = [
@@ -68,68 +54,29 @@ function rtcConfig () {
     if (!(disableTurnLocal && isLocal) && urls.length && username && credential) {
         urls.forEach(u => iceServers.push({ urls: u, username, credential }))
     }
-    return { iceServers, bundlePolicy: 'max-bundle', iceCandidatePoolSize: 1 }
+    dlog('[RTC] policy: all, servers:', iceServers.map(s => s.urls))
+    return { iceServers }
 }
 
-function logError (scope, e) {
-    err(`[${scope}]`, e?.name || e, e?.message || '')
-}
-
-function preferCodecs (pc) {
-    try {
-        const setPref = (kind, mime) => {
-            const caps = RTCRtpSender.getCapabilities?.(kind)
-            if (!caps?.codecs) return
-            const preferred = caps.codecs.filter(c => c.mimeType?.toLowerCase() === mime)
-            const rest = caps.codecs.filter(c => c.mimeType?.toLowerCase() !== mime)
-            pc.getTransceivers?.().forEach(t => {
-                if (t?.sender?.track?.kind === kind && t.setCodecPreferences) {
-                    t.setCodecPreferences([...preferred, ...rest])
-                }
-            })
-        }
-        setPref('video', 'video/VP8')
-        setPref('audio', 'audio/opus')
-    } catch (e) {
-        wrn('preferCodecs', e)
-    }
-}
-
-async function upgradeToHD (pc, commit) {
-    try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: HD_VIDEO, audio: true })
-        const newVideo = newStream.getVideoTracks()[0]
-        if (!newVideo) return
-        // заменяем только видео-трек
-        const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video')
-        if (sender) await sender.replaceTrack(newVideo)
-        // соберём новый stream для локального видео: старый аудио + новый видео
-        const mixed = new MediaStream()
-        mixed.addTrack(newVideo)
-        const currentAudioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio')
-        if (currentAudioSender?.track) mixed.addTrack(currentAudioSender.track)
-        commit('SET_LOCAL_STREAM', mixed)
-        dbg('[CALL] upgraded to HD')
-    } catch (e) {
-        wrn('upgradeToHD', e)
-    }
+function logError (scope, err) {
+    console.error(`[${scope}]`, err?.name || err, err?.message || '')
 }
 
 function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
     let restartTimer = null
     let restartInFlight = false
-    let upgraded = false
 
     const tryIceRestart = async () => {
-        if (restartInFlight || !pc) return
+        if (restartInFlight) return
+        if (!pc) return
         restartInFlight = true
         try {
             const offer = await pc.createOffer({ iceRestart: true })
             await pc.setLocalDescription(offer)
             socket.emit('callRenegotiate', { toUserId, chatId, sdp: offer })
-            dbg('[CALL] ICE restart sent')
+            dlog('[CALL] ICE restart sent')
         } catch (e) {
-            wrn('iceRestart', e)
+            warn('iceRestart', e)
         } finally {
             restartInFlight = false
         }
@@ -138,57 +85,49 @@ function attachPcHandlers (pc, { socket, toUserId, chatId, commit }) {
     pc.ontrack = (e) => {
         const stream = e.streams?.[0]
         if (stream) {
-            dbg('[CALL] Remote track:', e.track?.kind, e.track?.id)
+            dlog('[CALL] Remote track:', e.track?.kind, e.track?.id)
             commit('SET_REMOTE_STREAM', stream)
         }
     }
 
     pc.onicecandidate = (event) => {
-        if (!event.candidate) { dbg('[CALL] All local ICE candidates sent'); return }
-        dbg('[CALL] Local ICE candidate:', event.candidate.candidate || '')
+        if (!event.candidate) { dlog('[CALL] All local ICE candidates sent'); return }
+        const s = event.candidate.candidate || ''
+        dlog('[CALL] Local ICE candidate:', s)
         socket.emit('callIce', { toUserId, chatId, candidate: event.candidate })
     }
 
-    pc.onicegatheringstatechange = () => { dbg('[CALL] ICE gathering state:', pc.iceGatheringState) }
+    pc.onicegatheringstatechange = () => { dlog('[CALL] ICE gathering state:', pc.iceGatheringState) }
 
     pc.oniceconnectionstatechange = () => {
         const st = pc.iceConnectionState
-        dbg('[CALL] ICE state:', st)
-
-        // быстрый апгрейд до HD после установления канала
-        if (!upgraded && (st === 'connected' || st === 'completed')) {
-            upgraded = true
-            upgradeToHD(pc, commit)
-            clearTimeout(restartTimer)
-            return
-        }
-
+        dlog('[CALL] ICE state:', st)
         if (st === 'failed' || st === 'disconnected') {
             clearTimeout(restartTimer)
             restartTimer = setTimeout(() => {
                 if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') tryIceRestart()
             }, 1500)
+        } else if (st === 'connected' || st === 'completed') {
+            clearTimeout(restartTimer)
         }
     }
 
-    pc.onconnectionstatechange = () => { dbg('[CALL] Conn state:', pc.connectionState) }
+    pc.onconnectionstatechange = () => { dlog('[CALL] Conn state:', pc.connectionState) }
+
     pc.onicecandidateerror = (e) => {
-        wrn('[CALL] ICE candidate error:', {
-            url: e.url, hostCandidate: e.hostCandidate, errorCode: e.errorCode, errorText: e.errorText
-        })
+        dwarn('[CALL] ICE candidate error:', { url: e.url, hostCandidate: e.hostCandidate, errorCode: e.errorCode, errorText: e.errorText })
     }
-    pc.onnegotiationneeded = () => { /* no-op */ }
+
+    pc.onnegotiationneeded = () => {}
 
     return pc
 }
 
-async function getMediaFastStart () {
-    // быстрый старт — лёгкие констрейнты
-    try {
-        return await navigator.mediaDevices.getUserMedia({ video: FAST_VIDEO, audio: true })
-    } catch (e) {
-        wrn('[getUserMedia] fast failed:', e?.name, e?.message)
-        // запасной вариант
+async function getMediaWithFallback () {
+    const primary = { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true }
+    try { return await navigator.mediaDevices.getUserMedia(primary) }
+    catch (err) {
+        console.warn('[getUserMedia] primary failed:', err?.name, err?.message)
         return await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     }
 }
@@ -242,34 +181,25 @@ export default {
         async startCall ({ commit, rootState, state }, { chatId, toUserId }) {
             const socket = rootState.chat.socket
             if (!socket) return
-
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId, isCaller: true,
                 peerConnection: null, localStream: null, remoteStream: null
             })
-
             try {
-                const localStream = await getMediaFastStart()
+                const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
-
                 const pc = new RTCPeerConnection(rtcConfig())
-                // добавляем треки до createOffer
                 localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream))
-                preferCodecs(pc)
-
                 attachPcHandlers(pc, { socket, toUserId, chatId, commit })
                 commit('SET_CALL_STATE', { peerConnection: pc })
-
                 const offer = await pc.createOffer()
                 await pc.setLocalDescription(offer)
-
                 socket.emit('callInvite', { toUserId, chatId, sdp: offer })
-            } catch (e) {
-                logError('startCall', e)
+            } catch (err) {
+                logError('startCall', err)
                 this.dispatch('calls/endCallSilent', null, { root: true })
             }
         },
@@ -277,34 +207,26 @@ export default {
         async receiveCall ({ commit, rootState, state }, { fromUserId, chatId, sdp }) {
             const socket = rootState.chat.socket
             if (!socket) return
-
             stopTracks(state.localStream, 'localStream')
             stopTracks(state.remoteStream, 'remoteStream')
             closePc(state.peerConnection)
-
             commit('SET_CALL_STATE', {
                 active: true, chatId, toUserId: fromUserId, isCaller: false,
                 peerConnection: null, localStream: null, remoteStream: null
             })
-
             try {
-                const localStream = await getMediaFastStart()
+                const localStream = await getMediaWithFallback()
                 commit('SET_LOCAL_STREAM', localStream)
-
                 const pc = new RTCPeerConnection(rtcConfig())
                 localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream))
-                preferCodecs(pc)
-
                 attachPcHandlers(pc, { socket, toUserId: fromUserId, chatId, commit })
                 commit('SET_CALL_STATE', { peerConnection: pc })
-
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp))
                 const answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
-
                 socket.emit('callAnswer', { toUserId: fromUserId, chatId, sdp: answer })
-            } catch (e) {
-                logError('receiveCall', e)
+            } catch (err) {
+                logError('receiveCall', err)
                 this.dispatch('calls/endCallSilent', null, { root: true })
             }
         },
@@ -313,18 +235,18 @@ export default {
             try {
                 if (!state.peerConnection) return
                 await state.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp))
-            } catch (e) {
-                logError('handleCallAnswer', e)
+            } catch (err) {
+                logError('handleCallAnswer', err)
             }
         },
 
         async handleIceCandidate ({ state }, { candidate }) {
             try {
                 if (!state.peerConnection || !candidate) return
-                dbg('[CALL] Remote ICE candidate received:', candidate?.candidate || '')
+                dlog('[CALL] Remote ICE candidate received:', candidate?.candidate || '')
                 await state.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
-            } catch (e) {
-                logError('handleIceCandidate', e)
+            } catch (err) {
+                logError('handleIceCandidate', err)
             }
         },
 
@@ -337,8 +259,8 @@ export default {
                 const answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
                 socket.emit('callRenegotiateAnswer', { toUserId: fromUserId, chatId, sdp: answer })
-            } catch (e) {
-                logError('handleRenegotiate', e)
+            } catch (err) {
+                logError('handleRenegotiate', err)
             }
         },
 
@@ -347,8 +269,8 @@ export default {
                 const pc = state.peerConnection
                 if (!pc) return
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp))
-            } catch (e) {
-                logError('handleRenegotiateAnswer', e)
+            } catch (err) {
+                logError('handleRenegotiateAnswer', err)
             }
         },
 
