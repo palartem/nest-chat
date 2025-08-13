@@ -46,7 +46,6 @@
                         color="primary"
                         size="42px"
                     />
-                    <div class="text-grey-5 q-mt-sm">Подключаем камеру…</div>
                 </q-inner-loading>
             </div>
 
@@ -63,7 +62,6 @@
                         color="primary"
                         size="42px"
                     />
-                    <div class="text-grey-5 q-mt-sm">Ждём собеседника…</div>
                 </q-inner-loading>
             </div>
         </div>
